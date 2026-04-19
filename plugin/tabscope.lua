@@ -1,1 +1,6 @@
-vim.api.nvim_create_user_command("MyFirstFunction", require("plugin_name").hello, {})
+vim.api.nvim_create_user_command("TabLabel", require("tabscope.tablabel").tabline, {})
+vim.api.nvim_create_user_command("TabRename", require("tabscope.tablabel").rename_tab, {})
+vim.api.nvim_create_user_command("TabBufList", require("tabscope.bufferlist").list, {})
+vim.api.nvim_create_user_command("TabBufNext", require("tabscope.bufferlist").next, {})
+vim.api.nvim_create_user_command("TabBufPrev", require("tabscope.bufferlist").prev, {})
+vim.api.nvim_create_user_command("TabBufReorder", require("tabscope.bufferlist").reorder, {})

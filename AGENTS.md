@@ -1,0 +1,275 @@
+# tabscope.nvim - Agent Documentation
+
+## Project Overview
+
+A Neovim plugin providing tab-centric features for a scoped development context. Enables tab-local buffer management, custom tab names, and resession.nvim integration for tab state persistence.
+
+## Plugin Vision
+
+The goal of tabscope.nvim is to provide a tab-scoped context for development in Neovim. Each tab can have its own:
+- Custom name
+- Buffer list
+- Working context
+
+Features include:
+- Smart tab labeling with automatic path deduplication
+- Tab-scoped buffer lists with navigation and reordering
+- Buffer hijack: open files in tabs that already have them
+- Manual tab renaming
+
+## Directory Structure
+
+```
+tabscope.nvim/
+├── lua/tabscope/              # Main plugin modules
+├── lua/resession/extensions/  # resession.nvim integration
+├── plugin/                    # Plugin entry point (autocmds/commands)
+├── tests/                     # Test suite (plenary/busted)
+├── doc/                       # Neovim help documentation
+├── .github/workflows/         # CI/CD pipelines
+├── Makefile                   # Test runner
+├── .stylua.toml               # Code formatter config
+└── README.md                  # Project documentation
+```
+
+## Module Architecture
+
+### Main Entry Point
+**File**: `lua/tabscope.lua`  
+**Purpose**: Public API facade, plugin setup/configuration
+
+### Core Modules
+
+| Module | Path | Purpose |
+|--------|------|---------|
+| `tablabel` | `lua/tabscope/tablabel.lua` | Smart tab naming (smart path + manual rename) |
+| `bufferlist` | `lua/tabscope/bufferlist.lua` | Tab-scoped buffer management |
+| `resession` | `lua/resession/extensions/tabscope.lua` | Extension to save/restore tab-local state |
+
+### API Style
+
+Each module is independently requireable:
+
+```lua
+-- Setup all modules
+require("tabscope").setup({
+  tablabel = { enable = true },
+  bufferlist = { enable = true, hijack = true },
+})
+
+-- Or setup individual modules
+require("tabscope.tablabel").setup({ enable = true })
+require("tabscope.bufferlist").setup({ enable = true, hijack = true })
+
+-- Tab labeling
+require("tabscope.tablabel").tabline()       -- returns tabline string
+require("tabscope.tablabel").rename_tab() -- prompts for new name
+
+-- Buffer list
+require("tabscope.bufferlist").list()     -- open picker UI
+require("tabscope.bufferlist").next()     -- go to next buffer
+require("tabscope.bufferlist").prev()    -- go to previous buffer
+require("tabscope.bufferlist").reorder() -- open reorder UI
+
+-- Resession extension (loaded by resession.nvim)
+-- No direct user API
+```
+
+### Shared Constants
+
+```lua
+local tablabel = require("tabscope.tablabel")
+tablabel.LABEL_VAR_NAME -- "tabscope_tab_name" - tab-local variable name
+```
+
+### Autocmd Events
+
+**Custom User Events** - Use `args.data` to access custom data:
+
+```lua
+vim.api.nvim_exec_autocmds("User", {
+  pattern = "TabscopeBufAdded",
+  data = { buf = buf, tab = tab },
+})
+
+-- Listener:
+vim.api.nvim_create_autocmd("User", {
+  pattern = "TabscopeBufAdded",
+  callback = function(args)
+    local buf = args.data.buf  -- Custom data in args.data
+    local tab = args.data.tab
+  end,
+})
+```
+
+**Built-in Neovim Autocmds** - Use direct fields (not `args.data`):
+
+```lua
+vim.api.nvim_create_autocmd("BufDelete", {
+  callback = function(args)
+    _cleanup_handler(args.buf)  -- Direct field, not args.data.buf
+  end,
+})
+```
+
+| Autocmd Type | How to Access Data |
+|-------------|-----------------|
+| Built-in (BufDelete, BufEnter, etc.) | `args.buf`, `args.file`, etc. |
+| User events | `args.data` |
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "TabscopeBufAdded",
+  callback = function(args)
+    local buf = args.data.buf
+    local tab = args.data.tab
+    -- Handle the event
+  end,
+})
+
+vim.api.nvim_create_autocmd("User", {
+  pattern = "TabscopeTabRenamed",
+  callback = function(args)
+    local tab = args.data.tab
+    local name = args.data.name
+    -- Handle rename event
+  end,
+})
+```
+
+### Shared Constants
+
+```lua
+local tablabel = require("tabscope.tablabel")
+tablabel.LABEL_VAR_NAME -- "tabscope_tab_name" - tab-local variable name
+tablabel.BUFFER_VAR_NAME -- "tabscope_buffers" - tab-local buffer list variable name
+```
+
+### Module Configuration
+
+Each module has its own `setup()` method and `Config` class:
+
+```lua
+---@class tabscope.tablabel.Config
+---@field enable boolean Enable smart tab labeling
+
+---@class tabscope.bufferlist.Config
+---@field enable boolean Enable tab-scoped buffer management
+---@field hijack boolean Automatically switch to tab with open buffer when opening file
+---@field picker fun(titles: string[], on_select: fun(index: number))? Custom picker function
+```
+
+## Code Conventions
+
+### Stylua Configuration
+- Column width: 120
+- Indent: 2 spaces
+- Quotes: double-quoted strings preferred
+- Line endings: Unix
+
+### Lua Patterns
+- Use vim.t for tab-local state
+- Use vim.schedule for async UI updates
+- Use pcall for API calls that may fail
+- Prefix internal functions with underscore
+
+### Naming
+- Modules: `snake_case.lua`
+- Functions: `snake_case`
+- Classes/Types: Use dot-namespaced names matching module path
+- Commands: `PascalCase` or `snake_case`
+
+### Class Naming Convention
+
+Use dot-namespaced class names matching the module path:
+
+```lua
+---@class tabscope.tablabel.Config
+---@field enable boolean Enable smart tab labeling
+
+---@class tabscope.Module
+---@field config Config
+
+---@param args tabscope.tablabel.Config
+```
+
+### Type Annotations
+Use LuaLS annotations (see existing `lua/resession/extensions/tabscope.lua` for examples):
+
+```lua
+---@param opts resession.Extension.OnSaveOpts
+---@return any
+M.on_save = function(opts)
+  ...
+end
+```
+
+## Testing
+
+**Framework**: plenary.nvim + busted  
+**Command**: `make test`  
+**Setup**: `tests/minimal_init.lua` (auto-clones plenary if missing)
+
+### Test File Location
+```
+tests/tabscope/
+├── tabscope_spec.lua    # Main module tests
+└── tablabel_spec.lua    # Tab label module tests
+```
+
+## Development Workflow
+
+1. **Create feature branch**: `git checkout -b feature/<name>`
+2. **Write tests first** (TDD recommended)
+3. **Implement in modules**
+4. **Run tests**: `make test`
+5. **Check formatting**: `stylua --check lua/`
+6. **Commit with conventional messages**
+
+## resession.nvim Integration
+
+The plugin provides a resession extension that:
+- Saves `vim.t.tabscope_tab_name` per tab on session save
+- Saves `vim.t.tabscope_buffers` per tab on session save
+- Restores tab names and buffer lists after session load via `on_post_load`
+
+Users must register the extension in their resession config:
+
+```lua
+require("resession").setup({
+  extensions = { tabscope = require("resession.extensions.tabscope") }
+})
+```
+
+## Implementation Priority
+
+1. **Phase 1**: `tabscope.tablabel` module - smart tab names
+2. **Phase 2**: `tabscope.bufferlist` module - tab-scoped buffer management
+3. **Phase 3**: Additional tab context utilities (future)
+
+## Common Tasks
+
+### Running Tests
+```bash
+make test
+```
+
+### Running Stylua
+```bash
+stylua lua/
+```
+
+### Adding a New Module
+1. Create `lua/tabscope/<module>.lua`
+2. Add public API functions
+3. Add tests in `tests/tabscope/<module>_spec.lua`
+4. Update this AGENTS.md
+
+## Notes
+
+- This is a "beginning phase" project - structure may evolve
+- Keep modules focused and single-purpose
+- Avoid adding external dependencies without discussion
+- Session data storage is handled by resession.nvim, not this plugin
+- Custom pickers can be specified in module configuration
+- Each module can emit events for extensibility

@@ -1,0 +1,46 @@
+local bufferlist = require("tabscope.bufferlist")
+
+describe("bufferlist", function()
+  describe("BUFFER_VAR_NAME", function()
+    it("is a string", function()
+      assert.is_string(bufferlist.BUFFER_VAR_NAME)
+    end)
+
+    it("is 'tabscope_buffers'", function()
+      assert.equals("tabscope_buffers", bufferlist.BUFFER_VAR_NAME)
+    end)
+  end)
+
+  describe("config", function()
+    it("has enable field", function()
+      assert.is_boolean(bufferlist.config.enable)
+    end)
+
+    it("has hijack field", function()
+      assert.is_boolean(bufferlist.config.hijack)
+    end)
+
+    it("has picker field", function()
+      assert.is_true(bufferlist.config.picker == nil or type(bufferlist.config.picker) == "function")
+    end)
+  end)
+
+  describe("setup", function()
+    it("merges config", function()
+      bufferlist.setup({ enable = false })
+      assert.is_false(bufferlist.config.enable)
+    end)
+
+    it("does not error with no args", function()
+      assert.has_no_error(function()
+        bufferlist.setup()
+      end)
+    end)
+  end)
+
+  describe("get", function()
+    it("returns a table", function()
+      assert.is_table(bufferlist.get())
+    end)
+  end)
+end)

@@ -1,0 +1,37 @@
+local tablabel = require("tabscope.tablabel")
+
+describe("tablabel", function()
+  describe("LABEL_VAR_NAME", function()
+    it("is a string", function()
+      assert.is_string(tablabel.LABEL_VAR_NAME)
+    end)
+
+    it("is 'tabscope_tab_name'", function()
+      assert.equals("tabscope_tab_name", tablabel.LABEL_VAR_NAME)
+    end)
+  end)
+
+  describe("tabline", function()
+    it("returns a string", function()
+      assert.is_string(tablabel.tabline())
+    end)
+
+    it("returns non-empty string when no tabs", function()
+      local result = tablabel.tabline()
+      assert.is_true(#result > 0)
+    end)
+  end)
+
+  describe("setup", function()
+    it("merges config", function()
+      tablabel.setup({ enable = false })
+      assert.is_false(tablabel.config.enable)
+    end)
+
+    it("does not error with no args", function()
+      assert.has_no_error(function()
+        tablabel.setup()
+      end)
+    end)
+  end)
+end)
