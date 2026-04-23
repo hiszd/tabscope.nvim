@@ -75,8 +75,14 @@ M.on_post_load = function(data)
       if not t then
         return
       end
-      -- Resession handles mapping the saved tab handles to the new ones
-      vim.api.nvim_tabpage_set_var(t, bufferlist.BUFFER_VAR_NAME, list)
+      local adders = vim
+        .iter(list)
+        :map(function(_, info)
+          info.buf = vim.fn.bufnr(info.file)
+          info.win = vim.fn.bufwinid(info.buf)
+        end)
+        :totable()
+      bufferlist.add(adders, t)
     end
   end
 end

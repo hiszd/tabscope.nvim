@@ -25,9 +25,9 @@ M.config = {
 }
 
 ---Get buffer list for a tab.
----Returns a dictionary with buffer numbers as keys and BufInfo as values.
+---Returns a dictionary with file paths as keys and BufInfo as values.
 ---@param tab_handle number? # Tab handle (defaults to current tab)
----@return table<string, tabscope.bufferlist.BufInfo> # Dictionary of buffer info keyed by buffer number
+---@return table<string, tabscope.bufferlist.BufInfo> # Dictionary of buffer info keyed by filename
 M.get = function(tab_handle)
   local tab = tab_handle or vim.api.nvim_get_current_tabpage()
   local success, buffers = pcall(vim.api.nvim_tabpage_get_var, tab, M.BUFFER_VAR_NAME)
@@ -39,9 +39,9 @@ end
 
 --- Buffer information
 ---@class tabscope.bufferlist.BufInfo
----@field buf number Buffer number (also used as dictionary key)
+---@field buf number Buffer number
 ---@field win number Window number
----@field file string File path
+---@field file string File path (also used as dictionary key)
 ---@field pos number? Array position in the buffer list
 
 local getbufinfo = function(bufnr, position)
@@ -57,7 +57,7 @@ local getbufinfo = function(bufnr, position)
 end
 
 ---Add buffer to tab's buffer list.
----@param bufinfo [tabscope.bufferlist.BufInfo] Buffer number (defaults to current buffer)
+---@param bufinfo tabscope.bufferlist.BufInfo[] Buffer info (defaults to current buffer)
 ---@param tab_handle number? Tab handle (defaults to current tab)
 M.add = function(bufinfo, tab_handle)
   local tab = tab_handle or vim.api.nvim_get_current_tabpage()
@@ -70,51 +70,49 @@ M.add = function(bufinfo, tab_handle)
       bufin.pos = position
       position = position + 1
     end
-    buffers[tostring(bufin.buf)] = bufin
-    print("created buffer with these values: " .. vim.inspect(bufin))
+    buffers[bufin.file] = bufin
   end
 
   vim.api.nvim_tabpage_set_var(tab, M.BUFFER_VAR_NAME, buffers)
 
-  -- Emit event for other plugins to react
   vim.api.nvim_exec_autocmds("User", {
     pattern = "TabscopeBufAdded",
-    data = { bufs = buffers, tab = tab },
+    data = { tab = tab, buffers = bufinfo },
   })
 end
 
 ---Remove buffer from tab's buffer list.
----@param bufnr number? Buffer number (defaults to current buffer)
+---@param files [string] Buffer number or filename to remove
 ---@param tab_handle number? Tab handle (defaults to current tab)
----@return boolean
-M.remove = function(bufnr, tab_handle)
-  local buf = bufnr or vim.api.nvim_get_current_buf()
+M.remove = function(files, tab_handle)
   local tab = tab_handle or vim.api.nvim_get_current_tabpage()
   local buffers = M.get(tab)
 
-  if not buffers[tostring(buf)] then
-    return false
+  for _, file in ipairs(files) do
+    if not buffers[file] then
+      return
+    end
+
+    buffers[file] = nil
+    vim.api.nvim_tabpage_set_var(tab, M.BUFFER_VAR_NAME, buffers)
   end
 
-  buffers[tostring(buf)] = nil
-  vim.api.nvim_tabpage_set_var(tab, M.BUFFER_VAR_NAME, buffers)
-
-  -- Emit event for other plugins to react
   vim.api.nvim_exec_autocmds("User", {
     pattern = "TabscopeBufRemoved",
-    data = { buf = buf, tab = tab },
+    data = { tab = tab, buffers = files },
   })
-  return true
 end
 
----Cleanup closed buffers from all tab buffer lists.
 ---Cleanup closed buffers from all tab buffer lists.
 ---@param buf number Buffer number to remove
 local function _cleanup_handler(buf)
   for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
     local buffers = M.get(tab)
-    if buffers[tostring(buf)] then
-      M.remove(buf, tab)
+    for file, info in pairs(buffers) do
+      if info.buf == buf then
+        M.remove({ file }, tab)
+        break
+      end
     end
   end
 end
@@ -154,7 +152,7 @@ local function _conflict_handler(args)
   local target_tab = nil
   for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
     local buffers = M.get(tab)
-    if buffers[tostring(bufinfo.buf)] then
+    if buffers[bufinfo.file] then
       if tab == current_tab then
         return
       end
@@ -165,8 +163,19 @@ local function _conflict_handler(args)
 
   -- Buffer not found elsewhere - add to current tab's list and return
   if not target_tab then
-    print("Buffer not found elsewhere - add to current tab's list and return")
     M.add({ bufinfo }, current_tab)
+    return
+  end
+
+  local tabs = vim.api.nvim_list_tabpages()
+  local tabwins = (function()
+    local tw = {}
+    for _, tab in ipairs(tabs) do
+      table.insert(tw, vim.api.nvim_tabpage_get_win(tab))
+    end
+    return tw
+  end)()
+  if not vim.tbl_contains(tabwins, bufinfo.win) then
     return
   end
 
@@ -186,12 +195,12 @@ local function _conflict_handler(args)
       -- Check BEFORE removal: if current tab has only the conflict buffer
       local original_buffers = M.get(current_tab)
       local should_close = false
-      if dict.count(original_buffers) == 1 and original_buffers[tostring(bufinfo.buf)] then
+      if dict.count(original_buffers) == 1 and original_buffers[bufinfo.file] then
         should_close = true
       end
 
       -- Remove buffer from current tab's list
-      M.remove(bufinfo.buf, current_tab)
+      M.remove({ bufinfo.file }, current_tab)
 
       -- Go back to previous buffer in jump list (before opening conflict file)
       vim.cmd("normal! <C-o>")
@@ -211,14 +220,14 @@ local function _conflict_handler(args)
       end
     else
       -- Keep in current tab - remove from other tab's list
-      M.remove(bufinfo.buf, target_tab)
+      M.remove({ bufinfo.file }, target_tab)
     end
 
     in_handler = false
   end)
 end
 
----Navigate to previous buffer in tab's list.
+---Navigate to next buffer in tab's list.
 ---@param tab_handle number? Tab handle (defaults to current tab)
 M.next = function(tab_handle)
   local tab = tab_handle or vim.api.nvim_get_current_tabpage()
@@ -231,10 +240,10 @@ M.next = function(tab_handle)
   end
 
   local current_buf = vim.api.nvim_win_get_buf(win)
+  local current_file = vim.api.nvim_buf_get_name(current_buf)
 
-  local current_info = buffers[tostring(current_buf)]
+  local current_info = buffers[current_file]
   if not current_info then
-    print("current_info is nil")
     return
   end
 
@@ -245,9 +254,6 @@ M.next = function(tab_handle)
   end
   local next_buf = (function()
     for _, info in pairs(buffers) do
-      if not info.pos then
-        print("info.pos is nil buf buffer" .. info.buf)
-      end
       if info.pos == next_pos then
         return info.buf
       end
@@ -264,16 +270,15 @@ M.prev = function(tab_handle)
   local buffers = M.get(tab)
   local buffercount = dict.count(buffers)
 
-  -- Convert dictionary to sorted array by position
   if buffercount <= 1 then
     return
   end
 
   local current_buf = vim.api.nvim_win_get_buf(win)
+  local current_file = vim.api.nvim_buf_get_name(current_buf)
 
-  local current_info = buffers[current_buf]
+  local current_info = buffers[current_file]
   if not current_info then
-    print("current_info is nil")
     return
   end
 
@@ -284,9 +289,6 @@ M.prev = function(tab_handle)
   end
   local prev_buf = (function()
     for _, info in pairs(buffers) do
-      if not info.pos then
-        print("info.pos is nil buf buffer" .. info.buf)
-      end
       if info.pos == prev_pos then
         return info.buf
       end
@@ -296,22 +298,15 @@ M.prev = function(tab_handle)
 end
 
 ---Get buffer titles for picker.
----@param buffers table<string, tabscope.bufferlist.BufInfo> #Tab handle
----@return string[] Buffer #names for display
+---@param buffers table<string, tabscope.bufferlist.BufInfo>
+---@return string[]
 local function _get_titles(buffers)
   local titles = {}
 
-  for buf, info in pairs(buffers) do
-    local bufnr = tonumber(buf)
-    if not bufnr then
-      print("buf is nil")
-      break
-    end
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      local name = info.file
-      local title = name ~= "" and vim.fn.fnamemodify(name, ":.") or "[No Name]"
-      table.insert(titles, title)
-    end
+  for _, info in pairs(buffers) do
+    local name = info.file
+    local title = name ~= "" and vim.fn.fnamemodify(name, ":.") or "[No Name]"
+    table.insert(titles, title)
   end
 
   return titles
@@ -330,8 +325,8 @@ M.list = function(tab_handle)
 
   -- Create sorted list for picker
   local buffer_list = {}
-  for buf, info in pairs(buffers) do
-    table.insert(buffer_list, { buf = buf, info = info })
+  for _, info in pairs(buffers) do
+    table.insert(buffer_list, { file = info.file, bufnr = info.buf, info = info })
   end
   table.sort(buffer_list, function(a, b)
     return a.info.pos < b.info.pos
@@ -353,11 +348,10 @@ M.list = function(tab_handle)
     for i, title in ipairs(titles) do
       if title == choice then
         local win = vim.api.nvim_tabpage_get_win(tab)
-        vim.api.nvim_win_set_buf(win, buffer_list[i].buf)
-        -- Emit event for other plugins to react
+        vim.api.nvim_win_set_buf(win, buffer_list[i].bufnr)
         vim.api.nvim_exec_autocmds("User", {
           pattern = "TabscopeBufSelected",
-          data = { buf = buffer_list[i].buf, tab = tab },
+          data = { tab = tab, buffer = buffer_list[i].file },
         })
         return
       end
