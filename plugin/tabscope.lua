@@ -3,4 +3,3 @@ vim.api.nvim_create_user_command("TabRename", require("tabscope.tablabel").renam
 vim.api.nvim_create_user_command("TabBufList", require("tabscope.bufferlist").list, {})
 vim.api.nvim_create_user_command("TabBufNext", require("tabscope.bufferlist").next, {})
 vim.api.nvim_create_user_command("TabBufPrev", require("tabscope.bufferlist").prev, {})
-vim.api.nvim_create_user_command("TabBufReorder", require("tabscope.bufferlist").reorder, {})

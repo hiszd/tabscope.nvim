@@ -14,7 +14,7 @@ The goal of tabscope.nvim is to provide a tab-scoped context for development in 
 Features include:
 - Smart tab labeling with automatic path deduplication
 - Tab-scoped buffer lists with navigation and reordering
-- Buffer hijack: open files in tabs that already have them
+- Buffer conflict detection: when opening a file that exists in another tab, show popup to choose
 - Manual tab renaming
 
 ## Directory Structure
@@ -66,10 +66,14 @@ require("tabscope.tablabel").tabline()       -- returns tabline string
 require("tabscope.tablabel").rename_tab() -- prompts for new name
 
 -- Buffer list
-require("tabscope.bufferlist").list()     -- open picker UI
-require("tabscope.bufferlist").next()     -- go to next buffer
-require("tabscope.bufferlist").prev()    -- go to previous buffer
-require("tabscope.bufferlist").reorder() -- open reorder UI
+require("tabscope.bufferlist").setup({ enable = true, hijack = true })
+require("tabscope.bufferlist").get(tab_handle?)     -- get buffer list for tab
+require("tabscope.bufferlist").add(bufnr?, tab_handle?) -- add buffer to tab
+require("tabscope.bufferlist").remove(bufnr?, tab_handle?) -- remove buffer from tab
+require("tabscope.bufferlist").list(tab_handle?)   -- open picker UI
+require("tabscope.bufferlist").next(tab_handle?)  -- go to next buffer
+require("tabscope.bufferlist").prev(tab_handle?)  -- go to previous buffer
+require("tabscope.bufferlist").reorder(tab_handle?) -- open reorder UI
 
 -- Resession extension (loaded by resession.nvim)
 -- No direct user API
@@ -142,7 +146,9 @@ vim.api.nvim_create_autocmd("User", {
 ```lua
 local tablabel = require("tabscope.tablabel")
 tablabel.LABEL_VAR_NAME -- "tabscope_tab_name" - tab-local variable name
-tablabel.BUFFER_VAR_NAME -- "tabscope_buffers" - tab-local buffer list variable name
+
+local bufferlist = require("tabscope.bufferlist")
+bufferlist.BUFFER_VAR_NAME -- "tabscope_buffers" - tab-local buffer list variable name
 ```
 
 ### Module Configuration
@@ -155,9 +161,29 @@ Each module has its own `setup()` method and `Config` class:
 
 ---@class tabscope.bufferlist.Config
 ---@field enable boolean Enable tab-scoped buffer management
----@field hijack boolean Automatically switch to tab with open buffer when opening file
+---@field hijack boolean Show popup when opening file that exists in another tab
 ---@field picker fun(titles: string[], on_select: fun(index: number))? Custom picker function
 ```
+
+### Buffer Conflict Popup Behavior
+
+When opening a buffer that exists in another tab's buffer list, a popup is shown:
+
+**Popup Options:**
+1. **"Switch to existing tab"** - Switch to the tab with the buffer, focusing that buffer
+   - Navigates backward in jump list in current tab before switching
+   - Removes buffer from current tab's list
+   - If current tab had only 1 buffer, the tab is closed after switching
+
+2. **"Keep in current tab"** - Keep the buffer in current tab
+   - Removes buffer from other tab's list
+   - Buffer stays in current tab's list
+
+**Implementation Details:**
+- Uses `BufWinEnter` event to detect when buffers open
+- Checks only tracked buffers (via `M.get(tab)`), not all buffers in tab
+- Uses jump list (`<C-o>`) to navigate to previous buffer in origin tab
+- Emits `TabscopeBufAdded` event when buffer is added to a tab's list
 
 ## Code Conventions
 
@@ -214,7 +240,8 @@ end
 ```
 tests/tabscope/
 ├── tabscope_spec.lua    # Main module tests
-└── tablabel_spec.lua    # Tab label module tests
+├── tablabel_spec.lua    # Tab label module tests
+└── bufferlist_spec.lua # Buffer list module tests
 ```
 
 ## Development Workflow
