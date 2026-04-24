@@ -18,26 +18,26 @@ M.on_save = function(opts)
   local data = {
     tablabel = (function()
       if tablabel.config.enable == true then
-        local list = {}
-        for _, tab_handle in ipairs(vim.api.nvim_list_tabpages()) do
+        return vim.iter(vim.api.nvim_list_tabpages()):fold({}, function(acc, tab_handle)
           local success, name = pcall(vim.api.nvim_tabpage_get_var, tab_handle, tablabel.LABEL_VAR_NAME)
           if success and name then
-            list[tostring(tab_handle)] = name
+            acc[tostring(tab_handle)] = name
           end
-        end
-        return list
+          return acc
+        end)
       end
     end)(),
     bufferlist = (function()
       if bufferlist.config.enable == true then
-        local list = {}
-        for _, tab_handle in ipairs(vim.api.nvim_list_tabpages()) do
+        local b = vim.iter(vim.api.nvim_list_tabpages()):fold({}, function(acc, tab_handle)
           local success, buffers = pcall(vim.api.nvim_tabpage_get_var, tab_handle, bufferlist.BUFFER_VAR_NAME)
           if success and buffers then
-            list[tostring(tab_handle)] = buffers
+            acc[tostring(tab_handle)] = buffers
           end
-        end
-        return list
+          return acc
+        end)
+        print(vim.inspect(b))
+        return b
       end
     end)(),
   }
@@ -75,14 +75,10 @@ M.on_post_load = function(data)
       if not t then
         return
       end
-      local adders = vim
-        .iter(list)
-        :map(function(_, info)
-          info.buf = vim.fn.bufnr(info.file)
-          info.win = vim.fn.bufwinid(info.buf)
-        end)
-        :totable()
-      bufferlist.add(adders, t)
+      print("restoring: ", vim.inspect(list))
+      vim.defer_fn(function()
+        bufferlist.restore(list, t)
+      end, 500)
     end
   end
 end

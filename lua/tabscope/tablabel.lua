@@ -55,19 +55,16 @@ local function get_smart_tab_label(tab_handle, tab_index)
   end
 
   local filename = vim.fn.fnamemodify(full_path, ":t")
-  local all_tabs = vim.api.nvim_list_tabpages()
-  local conflict = false
 
-  for i, _ in ipairs(all_tabs) do
-    if i ~= tab_index then
-      local other_buf = vim.fn.tabpagebuflist(i)[1]
-      local other_path = vim.api.nvim_buf_get_name(other_buf)
-      if vim.fn.fnamemodify(other_path, ":t") == filename then
-        conflict = true
-        break
-      end
-    end
-  end
+  local conflict = vim
+    .iter(vim.api.nvim_list_tabpages())
+    :filter(function(tab)
+      return tab ~= tab_handle
+    end)
+    :any(function(tab)
+      local other_buf = vim.fn.tabpagebuflist(tab)[1]
+      return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(other_buf), ":t") == filename
+    end)
 
   if not conflict then
     return filename
@@ -78,17 +75,15 @@ local function get_smart_tab_label(tab_handle, tab_index)
 
   for i = #parts - 1, 1, -1 do
     label = parts[i] .. "/" .. label
-    local unique = true
-    for j, _ in ipairs(all_tabs) do
-      if j ~= tab_index then
-        local o_buf = vim.fn.tabpagebuflist(j)[1]
-        local o_path = vim.api.nvim_buf_get_name(o_buf)
-        if o_path:sub(-#label) == label then
-          unique = false
-          break
-        end
-      end
-    end
+    local unique = not vim
+      .iter(vim.api.nvim_list_tabpages())
+      :filter(function(tab)
+        return tab ~= tab_handle
+      end)
+      :any(function(tab)
+        local o_buf = vim.fn.tabpagebuflist(tab)[1]
+        return vim.api.nvim_buf_get_name(o_buf):sub(-#label) == label
+      end)
     if unique then
       break
     end
@@ -102,17 +97,17 @@ end
 ---@usage
 ---  vim.opt.tabline = "%!v:lua.require('tabscope.tablabel').tabline()"
 M.tabline = function()
-  local s = ""
   local tabs = vim.api.nvim_list_tabpages()
-  for i, tab_handle in ipairs(tabs) do
+  local s = vim.iter(tabs):enumerate():fold("", function(acc, i, tab_handle)
     if tab_handle == vim.api.nvim_get_current_tabpage() then
-      s = s .. "%#TabLineSel#"
+      acc = acc .. "%#TabLineSel#"
     else
-      s = s .. "%#TabLine#"
+      acc = acc .. "%#TabLine#"
     end
     -- Pass the handle and the index to the label generator
-    s = s .. " " .. get_smart_tab_label(tab_handle, i) .. " "
-  end
+    acc = acc .. " " .. get_smart_tab_label(tab_handle, i) .. " "
+    return acc
+  end)
   return s .. "%#TabLineFill#"
 end
 
