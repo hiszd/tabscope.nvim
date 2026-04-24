@@ -62,8 +62,16 @@ local function get_smart_tab_label(tab_handle, tab_index)
       return tab ~= tab_handle
     end)
     :any(function(tab)
-      local other_buf = vim.fn.tabpagebuflist(tab)[1]
-      return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(other_buf), ":t") == filename
+      local other_buf = vim.fn.tabpagebuflist(tab)
+      if other_buf == 0 then
+        return false
+      else
+        local success, buf_name = pcall(vim.api.nvim_buf_get_name, other_buf)
+        if not success then
+          return false
+        end
+        return vim.fn.fnamemodify(buf_name, ":t") == filename
+      end
     end)
 
   if not conflict then
@@ -99,6 +107,8 @@ end
 M.tabline = function()
   local tabs = vim.api.nvim_list_tabpages()
   local s = vim.iter(tabs):enumerate():fold("", function(acc, i, tab_handle)
+    ---@cast tab_handle number
+    ---@cast i number
     if tab_handle == vim.api.nvim_get_current_tabpage() then
       acc = acc .. "%#TabLineSel#"
     else
