@@ -75,9 +75,13 @@ M.on_post_load = function(data)
       if not t then
         return
       end
-      print("restoring: ", vim.inspect(list))
+      local r = vim.iter(list):fold({}, function(acc, _, info)
+        table.insert(acc, info)
+        return acc
+      end)
+      print("restoring: ", vim.inspect(r))
       vim.defer_fn(function()
-        bufferlist.restore(list, t)
+        bufferlist.restore(r, t)
       end, 500)
     end
   end

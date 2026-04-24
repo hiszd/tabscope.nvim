@@ -1,71 +1,120 @@
-*my-template-docs.txt*     For Neovim >= 0.8.0    Last change: 2025 October 08
+*tabscope.nvim*     Tab-centric development context for Neovim
+
+Author: zion
+License: MIT
+Version: 0.1.0
+Repository: https://github.com/zion/tabscope.nvim
 
 ==============================================================================
-Table of Contents                         *my-template-docs-table-of-contents*
+1. Overview                                     *tabscope* *tabscope-overview*
 
-1. A Neovim Plugin Template        |my-template-docs-a-neovim-plugin-template|
-  - Using it              |my-template-docs-a-neovim-plugin-template-using-it|
-  - Features and structure|my-template-docs-a-neovim-plugin-template-features-and-structure|
-2. Links                                              |my-template-docs-links|
+tabscope.nvim provides tab-centric features for scoped development context.
+
+Features:
+- Smart tab labeling (deduplicates filenames across tabs)
+- Tab-scoped buffer lists with navigation
+- Buffer conflict detection (popup when file exists in another tab)
+- Manual tab renaming
+- resession.nvim integration for state persistence
 
 ==============================================================================
-1. A Neovim Plugin Template        *my-template-docs-a-neovim-plugin-template*
-
-
-
-A template repository for Neovim plugins.
-
-
-USING IT                  *my-template-docs-a-neovim-plugin-template-using-it*
-
-Via `gh`:
+2. Setup                                       *tabscope-setup*
 
 >
-    $ gh repo create my-plugin -p ellisonleao/nvim-plugin-template
+-- Full setup (recommended)
+require("tabscope").setup({
+  tablabel = { enable = true },
+  bufferlist = { enable = true, hijack = true },
+})
+
+-- Or individual modules
+require("tabscope.tablabel").setup({ enable = true })
+require("tabscope.bufferlist").setup({ enable = true, hijack = true })
 <
 
-Via github web page:
+Configuration options:
+- tablabel.enable: Enable smart tab labeling (default: true)
+- bufferlist.enable: Enable buffer list management (default: true)
+- bufferlist.hijack: Show conflict popup (default: true)
+- bufferlist.picker: Custom picker function (default: nil)
 
-Click on `Use this template`
+==============================================================================
+3. Commands                                    *tabscope-commands*
 
+:TabLabel       Show/refresh tabline
+:TabRename     Rename current tab
+:TabBufList    Open buffer picker
+:TabBufNext    Go to next buffer
+:TabBufPrev   Go to previous buffer
 
+==============================================================================
+4. API Reference                              *tabscope-api*
 
-
-FEATURES AND STRUCTURE*my-template-docs-a-neovim-plugin-template-features-and-structure*
-
-- 100% Lua
-- Github actions for:
-    - running tests using plenary.nvim <https://github.com/nvim-lua/plenary.nvim> and busted <https://olivinelabs.com/busted/>
-    - check for formatting errors (Stylua)
-    - vimdocs autogeneration from README.md file
-    - luarocks release (LUAROCKS_API_KEY secret configuration required)
-
-
-PLUGIN STRUCTURE ~
-
+tablabel module:
 >
-    .
-    ├── lua
-    │   ├── plugin_name
-    │   │   └── module.lua
-    │   └── plugin_name.lua
-    ├── Makefile
-    ├── plugin
-    │   └── plugin_name.lua
-    ├── README.md
-    ├── tests
-    │   ├── minimal_init.lua
-    │   └── plugin_name
-    │       └── plugin_name_spec.lua
+require("tabscope.tablabel")
+
+tablabel.LABEL_VAR_NAME  -- "tabscope_tab_name"
+tablabel.tabline()       -- returns tabline string
+tablabel.rename_tab()   -- prompts for new name
+tablabel.setup({ enable = true/false })
+<
+
+bufferlist module:
+>
+require("tabscope.bufferlist")
+
+bufferlist.BUFFER_VAR_NAME  -- "tabscope_buffers"
+bufferlist.get(tab_handle?)      -- returns table<string, BufInfo>
+bufferlist.add({{{ buf, win, file, pos? }}}, tab_handle?)
+bufferlist.remove({"file.lua", ...}, tab_handle?)
+bufferlist.restore({{{ buf, win, file, pos? }}}, tab_handle?)
+bufferlist.list(tab_handle?)
+bufferlist.next(tab_handle?)
+bufferlist.prev(tab_handle?)
+bufferlist.setup({ enable, hijack, picker })
+<
+
+BufInfo structure:
+>
+{ buf = number, win = number, file = string, pos = number? }
 <
 
 ==============================================================================
-2. Links                                              *my-template-docs-links*
+5. Autocmd Events                            *tabscope-events*
 
-1. *GitHub Workflow Status*: https://img.shields.io/github/actions/workflow/status/ellisonleao/nvim-plugin-template/lint-test.yml?branch=main&style=for-the-badge
-2. *Lua*: https://img.shields.io/badge/Made%20with%20Lua-blueviolet.svg?style=for-the-badge&logo=lua
-3. **: https://docs.github.com/assets/cb-36544/images/help/repository/use-this-template-button.png
+TabscopeBufAdded       { tab, buffers }
+TabscopeBufRemoved    { tab, buffers }
+TabscopeBufSelected  { tab, buffer }
+TabscopeBufRestored  { tab, buffers }
+TabscopeTabRenamed  { tab, name }
 
-Generated by panvimdoc <https://github.com/kdheepak/panvimdoc>
+>
+vim.api.nvim_create_autocmd("User", {
+  pattern = "TabscopeBufAdded",
+  callback = function(args)
+    local tab = args.data.tab
+    local buffers = args.data.buffers
+  end,
+})
+<
 
+==============================================================================
+6. resession.nvim Integration                 *tabscope-resession*
+
+>
+require("resession").setup({
+  extensions = { tabscope = require("resession.extensions.tabscope") }
+})
+<
+
+==============================================================================
+7. Buffer Conflict Popup                  *tabscope-conflict*
+
+When opening a file that exists in another tab's list:
+
+1. "Switch to existing tab" - Switch to tab with the buffer
+2. "Keep in current tab" - Keep buffer in current tab
+
+==============================================================================
 vim:tw=78:ts=8:noet:ft=help:norl:

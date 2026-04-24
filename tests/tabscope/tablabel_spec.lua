@@ -11,6 +11,20 @@ describe("tablabel", function()
     end)
   end)
 
+  describe("config", function()
+    it("is a table", function()
+      assert.is_table(tablabel.config)
+    end)
+
+    it("has enable field", function()
+      assert.is_boolean(tablabel.config.enable)
+    end)
+
+    it("defaults enable to true", function()
+      assert.is_true(tablabel.config.enable)
+    end)
+  end)
+
   describe("tabline", function()
     it("returns a string", function()
       assert.is_string(tablabel.tabline())
@@ -20,18 +34,42 @@ describe("tablabel", function()
       local result = tablabel.tabline()
       assert.is_true(#result > 0)
     end)
+
+    it("returns string containing TabLine highlights", function()
+      local result = tablabel.tabline()
+      assert.is_true(result:match("TabLine") ~= nil)
+    end)
+
+    it("returns string containing TabLineFill", function()
+      local result = tablabel.tabline()
+      assert.is_true(result:match("TabLineFill") ~= nil)
+    end)
   end)
 
   describe("setup", function()
     it("merges config", function()
+      local original = tablabel.config.enable
       tablabel.setup({ enable = false })
       assert.is_false(tablabel.config.enable)
+      tablabel.config.enable = original
     end)
 
     it("does not error with no args", function()
       assert.has_no_error(function()
         tablabel.setup()
       end)
+    end)
+
+    it("sets tabline when enabled", function()
+      tablabel.setup({ enable = true })
+      assert.is_string(vim.opt.tabline:get())
+      assert.is_true(vim.opt.tabline:get():match("tabscope") ~= nil)
+    end)
+  end)
+
+  describe("rename_tab", function()
+    it("is a function", function()
+      assert.is_function(tablabel.rename_tab)
     end)
   end)
 end)

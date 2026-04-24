@@ -49,20 +49,19 @@ end
 ---@param tab_handle number? Tab handle (defaults to current tab)
 M.restore = function(bufinfo, tab_handle)
   local tab = tab_handle or vim.api.nvim_get_current_tabpage()
-  local buffers = vim.iter(bufinfo):fold({}, function(acc, file, bufin)
-    local existing, existing_info = vim.iter(M.get(tab)):find(function(b)
-      return b.file == file
-    end)
-    if existing then
-      existing_info.pos = bufin.pos
-      acc[existing] = existing_info
+  if not bufinfo then
+    return
+  end
+
+  local buffers = vim.iter(bufinfo):fold({}, function(acc, bufin)
+    if not bufin or not bufin.file then
       return acc
     else
       local b = bufin
       b.buf = vim.fn.bufnr(b.file)
       if vim.api.nvim_buf_is_valid(b.buf) then
         b.pos = dict.count(acc) + 1
-        acc[file] = b
+        acc[b.file] = b
         return acc
       end
     end
@@ -90,10 +89,10 @@ M.add = function(bufinfo, tab_handle)
     local b = buffers[bufin.file]
     if b and not b.pos then
       b.pos = position
-      position = position + 1
     else
       bufin.pos = position
     end
+    position = position + 1
     buffers[bufin.file] = bufin
   end)
 
@@ -128,7 +127,7 @@ end
 local function _cleanup_handler(buf)
   vim.iter(vim.api.nvim_list_tabpages()):each(function(tab)
     local buffers = M.get(tab)
-    vim.iter(buffers):any(function(info)
+    vim.iter(buffers):any(function(_, info)
       if info.buf == buf then
         M.remove({ info.file }, tab)
         return true
@@ -279,7 +278,6 @@ M.next = function(tab_handle)
     return info.pos == next_pos
   end)
   if not next_buf then
-    print("next_buf is nil")
     return
   end
   vim.api.nvim_win_set_buf(win, next_buf.buf)
@@ -314,7 +312,6 @@ M.prev = function(tab_handle)
     return info.pos == prev_pos
   end)
   if not prev_buf then
-    print("prev_buf is nil")
     return
   end
   vim.api.nvim_win_set_buf(win, prev_buf.buf)
@@ -352,12 +349,7 @@ M.list = function(tab_handle)
     end)
     :totable()
   table.sort(buffer_list, function(a, b)
-    if not a.pos then
-      print("a.pos is nil: ", vim.inspect(a))
-    elseif not b.pos then
-      print("b.pos is nil: ", vim.inspect(b))
-    end
-    return a.pos < b.pos
+    return (a.pos or 0) < (b.pos or 0)
   end)
 
   local titles = _get_titles(buffer_list)
