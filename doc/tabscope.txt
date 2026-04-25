@@ -66,9 +66,9 @@ require("tabscope.bufferlist")
 
 bufferlist.BUFFER_VAR_NAME  -- "tabscope_buffers"
 bufferlist.get(tab_handle?)      -- returns table<string, BufInfo>
-bufferlist.add({{{ buf, win, file, pos? }}}, tab_handle?)
+bufferlist.add({ BufInfo }, tab_handle?)
 bufferlist.remove({"file.lua", ...}, tab_handle?)
-bufferlist.restore({{{ buf, win, file, pos? }}}, tab_handle?)
+bufferlist.restore({{ file = "file.lua", pos = 1 }}, tab_handle?)
 bufferlist.list(tab_handle?)
 bufferlist.next(tab_handle?)
 bufferlist.prev(tab_handle?)
@@ -77,16 +77,25 @@ bufferlist.setup({ enable, hijack, picker })
 
 BufInfo structure:
 >
-{ buf = number, win = number, file = string, pos = number? }
+{ file = string, pos = number? }
 <
+
+BufInfo methods:
+- BufInfo.new({ file, pos }) - Create new instance
+- BufInfo.from_buffer(bufnr, pos) - Create from buffer number
+- info:get_display_name() - Get display-friendly name
+- info:get_buffer() - Get buffer number
+- info:is_valid() - Check if buffer is valid
+- info:set_position(pos) - Set position in list
+- info:to_table() - Convert to plain table
 
 ==============================================================================
 5. Autocmd Events                            *tabscope-events*
 
-TabscopeBufAdded       { tab, buffers }
-TabscopeBufRemoved    { tab, buffers }
-TabscopeBufSelected  { tab, buffer }
-TabscopeBufRestored  { tab, buffers }
+TabscopeBufAdded       { tab, bufs }
+TabscopeBufRemoved    { tab, files }
+TabscopeBufSelected  { tab, buf }
+TabscopeBufRestored  { tab, bufs }
 TabscopeTabRenamed  { tab, name }
 
 >
@@ -94,7 +103,7 @@ vim.api.nvim_create_autocmd("User", {
   pattern = "TabscopeBufAdded",
   callback = function(args)
     local tab = args.data.tab
-    local buffers = args.data.buffers
+    local bufs = args.data.bufs
   end,
 })
 <

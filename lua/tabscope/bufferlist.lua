@@ -67,6 +67,7 @@ end
 ---@param tab_handle number? Tab handle (defaults to current tab)
 M.restore = function(bufinfo, tab_handle)
   local tab = tab_handle or vim.api.nvim_get_current_tabpage()
+  local added = {}
   if not bufinfo then
     return
   end
@@ -85,6 +86,7 @@ M.restore = function(bufinfo, tab_handle)
       bufin:set_position(position)
       position = position + 1
       buffers[info.file] = bufin
+      table.insert(added, bufin)
     end
   end)
 
@@ -92,7 +94,7 @@ M.restore = function(bufinfo, tab_handle)
 
   vim.api.nvim_exec_autocmds("User", {
     pattern = "TabscopeBufRestored",
-    data = { tab = tab },
+    data = { tab = tab, bufs = added },
   })
 end
 
@@ -129,7 +131,7 @@ M.add = function(bufinfo, tab_handle)
 
   vim.api.nvim_exec_autocmds("User", {
     pattern = "TabscopeBufAdded",
-    data = { tab = tab },
+    data = { tab = tab, bufs = bufinfo },
   })
 end
 
@@ -156,7 +158,7 @@ M.remove = function(files, tab_handle)
 
   vim.api.nvim_exec_autocmds("User", {
     pattern = "TabscopeBufRemoved",
-    data = { tab = tab },
+    data = { tab = tab, files = files },
   })
   return dict.count(buffers) == 0
 end

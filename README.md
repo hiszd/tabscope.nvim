@@ -72,13 +72,13 @@ bufferlist.config         -- current configuration
 bufferlist.get(tab_handle?)  -- returns table<string, BufInfo>
 
 -- Add buffers to tab
-bufferlist.add({{{ buf, win, file, pos? }}}, tab_handle?)
+bufferlist.add({ BufInfo }, tab_handle?)
 
 -- Remove buffers from tab
 bufferlist.remove({"file.lua", ...}, tab_handle?)
 
 -- Restore buffers from session
-bufferlist.restore({{{ buf, win, file, pos? }}}, tab_handle?)
+bufferlist.restore({{ file = "file.lua", pos = 1 }}, tab_handle?)
 
 -- Open buffer picker
 bufferlist.list(tab_handle?)
@@ -94,11 +94,18 @@ bufferlist.setup({ enable, hijack, picker })
 
 ```lua
 ---@class tabscope.bufferlist.BufInfo
----@field buf number Buffer number
----@field win number Window number
 ---@field file string File path (dictionary key)
 ---@field pos number? Position in buffer list
 ```
+
+**BufInfo Methods:**
+- `BufInfo.new({ file, pos })` - Create new instance
+- `BufInfo.from_buffer(bufnr, pos)` - Create from buffer number
+- `info:get_display_name()` - Get display-friendly name
+- `info:get_buffer()` - Get buffer number by filename
+- `info:is_valid()` - Check if buffer is valid
+- `info:set_position(pos)` - Set position in list
+- `info:to_table()` - Convert to plain table for serialization
 
 ### Main Module
 
@@ -113,10 +120,10 @@ tabscope.setup({ tablabel = {}, bufferlist = {} })
 
 | Event | Data | Description |
 |-------|------|-------------|
-| `TabscopeBufAdded` | `{ tab, buffers }` | Buffer added to list |
-| `TabscopeBufRemoved` | `{ tab, buffers }` | Buffer removed from list |
-| `TabscopeBufSelected` | `{ tab, buffer }` | Buffer selected in picker |
-| `TabscopeBufRestored` | `{ tab, buffers }` | Buffers restored from session |
+| `TabscopeBufAdded` | `{ tab, bufs }` | Buffer added to list |
+| `TabscopeBufRemoved` | `{ tab, files }` | Buffer removed from list |
+| `TabscopeBufSelected` | `{ tab, buf }` | Buffer selected in picker |
+| `TabscopeBufRestored` | `{ tab, bufs }` | Buffers restored from session |
 | `TabscopeTabRenamed` | `{ tab, name }` | Tab renamed |
 
 ```lua
@@ -124,7 +131,7 @@ vim.api.nvim_create_autocmd("User", {
   pattern = "TabscopeBufAdded",
   callback = function(args)
     local tab = args.data.tab
-    local buffers = args.data.buffers
+    local bufs = args.data.bufs
   end,
 })
 ```

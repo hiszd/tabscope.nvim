@@ -71,5 +71,27 @@ describe("tablabel", function()
     it("is a function", function()
       assert.is_function(tablabel.rename_tab)
     end)
+
+    it("emits TabscopeTabRenamed event with correct data", function()
+      local event_data = nil
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "TabscopeTabRenamed",
+        callback = function(args)
+          event_data = args.data
+        end,
+      })
+
+      vim.fn.input = function()
+        return "TestTab"
+      end
+
+      tablabel.rename_tab()
+
+      assert.is_not_nil(event_data)
+      assert.is_number(event_data.tab)
+      assert.equals("TestTab", event_data.name)
+
+      vim.cmd("redrawtabline")
+    end)
   end)
 end)

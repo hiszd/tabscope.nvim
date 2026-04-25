@@ -87,17 +87,16 @@ describe("bufferlist", function()
       assert.is_function(bufferlist.add)
     end)
 
-    it("adds buffer to tab's list", function()
+it("adds buffer to tab's list", function()
       local tab = vim.api.nvim_get_current_tabpage()
       local test_buf = vim.api.nvim_create_buf(true, false)
       local test_file = vim.fn.tempname() .. ".lua"
       vim.api.nvim_buf_set_name(test_buf, test_file)
 
-      bufferlist.add({{ buf = test_buf, win = 1000, file = test_file }}, tab)
+      bufferlist.add({{ file = test_file }}, tab)
 
       local result = bufferlist.get(tab)
       assert.is_true(result[test_file] ~= nil)
-      assert.equals(test_buf, result[test_file].buf)
 
       vim.api.nvim_buf_delete(test_buf, { force = true })
     end)
@@ -142,21 +141,25 @@ describe("bufferlist", function()
       vim.api.nvim_buf_delete(test_buf2, { force = true })
     end)
 
-    it("emits TabscopeBufAdded event", function()
+    it("emits TabscopeBufAdded event with correct data", function()
       local tab = vim.api.nvim_get_current_tabpage()
       local test_buf = vim.api.nvim_create_buf(true, false)
       local test_file = vim.fn.tempname() .. ".lua"
       vim.api.nvim_buf_set_name(test_buf, test_file)
 
-      local event_fired = false
+      local event_data = nil
       vim.api.nvim_create_autocmd("User", {
         pattern = "TabscopeBufAdded",
-        callback = function() event_fired = true end,
+        callback = function(args)
+          event_data = args.data
+        end,
       })
 
-      bufferlist.add({{ buf = test_buf, win = 1000, file = test_file }}, tab)
+      bufferlist.add({{ file = test_file }}, tab)
 
-      assert.is_true(event_fired)
+      assert.is_not_nil(event_data)
+      assert.is_number(event_data.tab)
+      assert.is_table(event_data.bufs)
 
       vim.api.nvim_buf_delete(test_buf, { force = true })
     end)
@@ -186,23 +189,27 @@ describe("bufferlist", function()
       vim.api.nvim_buf_delete(test_buf, { force = true })
     end)
 
-    it("emits TabscopeBufRemoved event", function()
+    it("emits TabscopeBufRemoved event with correct data", function()
       local tab = vim.api.nvim_get_current_tabpage()
       local test_buf = vim.api.nvim_create_buf(true, false)
       local test_file = vim.fn.tempname() .. ".lua"
       vim.api.nvim_buf_set_name(test_buf, test_file)
 
-      bufferlist.add({{ buf = test_buf, win = 1000, file = test_file }}, tab)
+      bufferlist.add({{ file = test_file }}, tab)
 
-      local event_fired = false
+      local event_data = nil
       vim.api.nvim_create_autocmd("User", {
         pattern = "TabscopeBufRemoved",
-        callback = function() event_fired = true end,
+        callback = function(args)
+          event_data = args.data
+        end,
       })
 
       bufferlist.remove({ test_file }, tab)
 
-      assert.is_true(event_fired)
+      assert.is_not_nil(event_data)
+      assert.is_number(event_data.tab)
+      assert.is_table(event_data.files)
 
       vim.api.nvim_buf_delete(test_buf, { force = true })
     end)
@@ -239,25 +246,29 @@ describe("bufferlist", function()
       vim.api.nvim_buf_delete(test_buf, { force = true })
     end)
 
-    it("emits TabscopeBufRestored event", function()
+    it("emits TabscopeBufRestored event with correct data", function()
       local tab = vim.api.nvim_get_current_tabpage()
       local test_buf = vim.api.nvim_create_buf(true, false)
       local test_file = vim.fn.tempname() .. ".lua"
       vim.api.nvim_buf_set_name(test_buf, test_file)
 
       local session_data = {
-        { buf = test_buf, win = 1000, file = test_file, pos = 1 },
+        { file = test_file, pos = 1 },
       }
 
-      local event_fired = false
+      local event_data = nil
       vim.api.nvim_create_autocmd("User", {
         pattern = "TabscopeBufRestored",
-        callback = function() event_fired = true end,
+        callback = function(args)
+          event_data = args.data
+        end,
       })
 
       bufferlist.restore(session_data, tab)
 
-      assert.is_true(event_fired)
+      assert.is_not_nil(event_data)
+      assert.is_number(event_data.tab)
+      assert.is_table(event_data.bufs)
 
       vim.api.nvim_buf_delete(test_buf, { force = true })
     end)
@@ -328,6 +339,7 @@ describe("bufferlist", function()
 
     it("notifies on empty buffer list", function()
       local tab = vim.api.nvim_get_current_tabpage()
+      bufferlist._state[tostring(tab)] = {}
 
       local notified = false
       vim.notify = function(msg)
@@ -347,20 +359,47 @@ describe("bufferlist", function()
       local test_file = vim.fn.tempname() .. ".lua"
       vim.api.nvim_buf_set_name(test_buf, test_file)
 
-      bufferlist.add({{ buf = test_buf, win = 1000, file = test_file }}, tab)
+      bufferlist.add({{ file = test_file }}, tab)
 
       local picker_called = false
-      local titles_received = {}
       bufferlist.config.picker = function(titles, opts, callback)
         picker_called = true
-        titles_received = titles
-        callback(nil)
+        callback(titles[1])
       end
 
       bufferlist.list(tab)
 
       assert.is_true(picker_called)
-      assert.is_true(#titles_received > 0)
+
+      bufferlist.config.picker = nil
+      vim.api.nvim_buf_delete(test_buf, { force = true })
+    end)
+
+    it("emits TabscopeBufSelected event with correct data", function()
+      local tab = vim.api.nvim_get_current_tabpage()
+      local test_buf = vim.api.nvim_create_buf(true, false)
+      local test_file = vim.fn.tempname() .. ".lua"
+      vim.api.nvim_buf_set_name(test_buf, test_file)
+
+      bufferlist.add({{ file = test_file }}, tab)
+
+      local event_data = nil
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "TabscopeBufSelected",
+        callback = function(args)
+          event_data = args.data
+        end,
+      })
+
+      bufferlist.config.picker = function(titles, opts, callback)
+        callback(titles[1])
+      end
+
+      bufferlist.list(tab)
+
+      assert.is_not_nil(event_data)
+      assert.is_number(event_data.tab)
+      assert.is_number(event_data.buf)
 
       bufferlist.config.picker = nil
       vim.api.nvim_buf_delete(test_buf, { force = true })
@@ -378,6 +417,105 @@ describe("bufferlist", function()
     it("does not error with no args", function()
       assert.has_no_error(function()
         bufferlist.setup()
+      end)
+    end)
+  end)
+
+  describe("BufInfo", function()
+    local BufInfo
+
+    before_each(function()
+      BufInfo = require("tabscope.bufferlist.bufinfo")
+    end)
+
+    describe("new", function()
+      it("creates instance with file and pos fields", function()
+        local info = BufInfo.new({ file = "test.lua", pos = 1 })
+        assert.is_table(info)
+        assert.equals("test.lua", info.file)
+        assert.equals(1, info.pos)
+      end)
+
+      it("handles missing pos gracefully", function()
+        local info = BufInfo.new({ file = "test.lua" })
+        assert.is_table(info)
+        assert.equals("test.lua", info.file)
+        assert.is_nil(info.pos)
+      end)
+    end)
+
+    describe("from_buffer", function()
+      it("creates instance from valid buffer", function()
+        local buf = vim.api.nvim_create_buf(true, false)
+        vim.api.nvim_buf_set_name(buf, "/tmp/test.lua")
+        local info = BufInfo.from_buffer(buf)
+        assert.is_table(info)
+        assert.equals("/tmp/test.lua", info.file)
+        vim.api.nvim_buf_delete(buf, { force = true })
+      end)
+
+      it("returns nil for invalid buffer", function()
+        local info = BufInfo.from_buffer(99999)
+        assert.is_nil(info)
+      end)
+    end)
+
+    describe("get_display_name", function()
+      it("returns filename or relative path for valid path", function()
+        local info = BufInfo.new({ file = "/tmp/test.lua" })
+        local name = info:get_display_name()
+        assert.is_string(name)
+        assert.is_true(name == "test.lua" or name == "/tmp/test.lua")
+      end)
+
+      it("returns [No Name] for empty file", function()
+        local info = BufInfo.new({ file = "" })
+        assert.equals("[No Name]", info:get_display_name())
+      end)
+    end)
+
+    describe("get_buffer", function()
+      it("returns buffer number for valid file", function()
+        local buf = vim.api.nvim_create_buf(true, false)
+        vim.api.nvim_buf_set_name(buf, "/tmp/test.lua")
+        local info = BufInfo.new({ file = "/tmp/test.lua" })
+        local bufnr = info:get_buffer()
+        assert.equals(buf, bufnr)
+        vim.api.nvim_buf_delete(buf, { force = true })
+      end)
+    end)
+
+    describe("is_valid", function()
+      it("returns true for valid buffer", function()
+        local buf = vim.api.nvim_create_buf(true, false)
+        vim.api.nvim_buf_set_name(buf, "/tmp/test.lua")
+        local info = BufInfo.new({ file = "/tmp/test.lua" })
+        assert.is_true(info:is_valid())
+        vim.api.nvim_buf_delete(buf, { force = true })
+      end)
+
+      it("returns false for invalid buffer", function()
+        local info = BufInfo.new({ file = "/tmp/nonexistent.lua" })
+        assert.is_false(info:is_valid())
+      end)
+    end)
+
+    describe("set_position", function()
+      it("sets the position field", function()
+        local info = BufInfo.new({ file = "test.lua" })
+        assert.is_nil(info.pos)
+        info:set_position(5)
+        assert.equals(5, info.pos)
+      end)
+    end)
+
+    describe("to_table", function()
+      it("returns plain table with file and pos", function()
+        local info = BufInfo.new({ file = "test.lua", pos = 3 })
+        local tbl = info:to_table()
+        assert.is_table(tbl)
+        assert.equals("test.lua", tbl.file)
+        assert.equals(3, tbl.pos)
       end)
     end)
   end)
