@@ -10,6 +10,7 @@ A Neovim plugin for tab-centric development context. Each tab has its own buffer
 - Tab-scoped buffer lists with navigation
 - Buffer conflict detection (popup when file exists in another tab)
 - Manual tab renaming
+- Tab-specific working directories with file picker
 - resession.nvim integration for state persistence
 
 ## Setup
@@ -34,6 +35,8 @@ require("tabscope.bufferlist").setup({ enable = true, hijack = true })
 | `bufferlist` | `enable` | boolean | `true` | Enable buffer list management |
 | `bufferlist` | `hijack` | boolean | `true` | Show conflict popup |
 | `bufferlist` | `picker` | function? | `nil` | Custom picker function |
+| `bufferlist` | `cwd_max_depth` | number | `10` | Max depth for cwd() picker |
+| `bufferlist` | `open_max_depth` | number | `10` | Max depth for open() picker |
 
 ## Commands
 
@@ -44,6 +47,10 @@ require("tabscope.bufferlist").setup({ enable = true, hijack = true })
 | `:TabBufList` | bufferlist | Open buffer picker |
 | `:TabBufNext` | bufferlist | Go to next buffer |
 | `:TabBufPrev` | bufferlist | Go to previous buffer |
+| `:TabCwd` | bufferlist | Pick working directory (tab scope) |
+| `:TabCwdGlobal` | bufferlist | Pick working directory (global scope) |
+| `:TabOpen` | bufferlist | Open file from cwd (tab scope) |
+| `:TabOpenGlobal` | bufferlist | Open file from cwd (global scope) |
 
 ## API Reference
 
@@ -87,7 +94,11 @@ bufferlist.list(tab_handle?)
 bufferlist.next(tab_handle?)
 bufferlist.prev(tab_handle?)
 
-bufferlist.setup({ enable, hijack, picker })
+-- Working directory management
+bufferlist.cwd({ scope })   -- Pick subdirectory to set as working directory
+bufferlist.open({ scope })  -- Open file from working directory
+
+bufferlist.setup({ enable, hijack, picker, cwd_max_depth, open_max_depth })
 ```
 
 ### BufInfo Structure

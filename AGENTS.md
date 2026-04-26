@@ -27,7 +27,8 @@ tabscope.nvim/
 │   ├── tablabel.lua                 # Smart tab naming
 │   ├── bufferlist.lua               # Tab-scoped buffer management
 │   ├── bufferlist/
-│   │   └── bufinfo.lua              # BufInfo class with metatable methods
+│   │   ├── bufinfo.lua              # BufInfo class with metatable methods
+│   │   └── picker.lua               # Picker integration for cwd/open
 │   └── utils/
 │       └── dict.lua                # Dictionary utilities
 ├── lua/resession/extensions/        # resession.nvim integration
@@ -104,6 +105,8 @@ require("tabscope.bufferlist").restore(bufinfo[], tab_handle?) -- restore from s
 require("tabscope.bufferlist").list(tab_handle?)     -- open picker UI
 require("tabscope.bufferlist").next(tab_handle?)     -- go to next buffer
 require("tabscope.bufferlist").prev(tab_handle?)     -- go to previous buffer
+require("tabscope.bufferlist").cwd({scope?})       -- pick working directory
+require("tabscope.bufferlist").open({scope?})        -- open file from cwd
 ```
 
 ### Dual-State Architecture
@@ -171,6 +174,8 @@ Each module has its own `setup()` method and `Config` class:
 ---@field enable boolean Enable tab-scoped buffer management
 ---@field hijack boolean Show popup when opening file that exists in another tab
 ---@field picker fun(titles: string[], on_select: fun(index: number))? Custom picker function
+---@field cwd_max_depth number Max depth for directory listing in cwd() picker (default: 10)
+---@field open_max_depth number Max depth for file listing in open() picker (default: 10)
 ```
 
 ### BufInfo Structure
@@ -290,10 +295,10 @@ require("resession").setup({
 1. **Phase 1**: `tabscope.tablabel` module - smart tab names ✓
 2. **Phase 2**: `tabscope.bufferlist` module - tab-scoped buffer management ✓
 3. **Phase 3**: Bug fixes and polish
-4. **Phase 4**: Tab working directory (future)
-   - Set a working directory per tab
-   - Files from that directory open in that tab only
-   - File picker scoped to working directory
+4. **Phase 4**: Tab working directory
+   - `bufferlist.cwd()` - pick working directory (tab or global)
+   - `bufferlist.open()` - open file from cwd, switch tabs if file belongs to another tab's cwd
+   - `bufferlist.picker` module - handles picker integration (snacks > telescope > vim.ui.select)
 
 ## Common Tasks
 

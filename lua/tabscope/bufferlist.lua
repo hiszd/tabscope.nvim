@@ -11,6 +11,7 @@ local M = {}
 
 local BufInfo = require("tabscope.bufferlist.bufinfo")
 local dict = require("tabscope.utils.dict")
+local picker = require("tabscope.bufferlist.picker")
 
 ---Buffer list variable name (for resession backup).
 M.BUFFER_VAR_NAME = "tabscope_buffers"
@@ -19,10 +20,14 @@ M.BUFFER_VAR_NAME = "tabscope_buffers"
 ---@field enable boolean Enable tab-scoped buffer management (default: true)
 ---@field hijack boolean Automatically switch to tab with open buffer when opening file (default: true)
 ---@field picker fun(titles: string[], on_select: fun(index: number))? Custom picker function
+---@field cwd_max_depth number Max depth for directory listing in cwd() picker (default: 10)
+---@field open_max_depth number Max depth for file listing in open() picker (default: 10)
 M.config = {
   enable = true,
   hijack = true,
   picker = nil,
+  cwd_max_depth = 10,
+  open_max_depth = 10,
 }
 
 ---Module state: tab_handle -> dictionary of filename -> BufInfo
@@ -391,9 +396,9 @@ M.list = function(tab_handle)
     return acc
   end)
 
-  local picker = M.config.picker or vim.ui.select
+  local list_picker = M.config.picker or vim.ui.select
 
-  picker(buffer_list, {
+  list_picker(buffer_list, {
     prompt = "Select buffer:",
     format_item = function(info)
       ---@cast info tabscope.bufferlist.BufInfo
@@ -413,6 +418,152 @@ M.list = function(tab_handle)
       data = { tab = tab, buf = buf },
     })
   end)
+end
+
+---Pick a subdirectory to set as working directory.
+---Lists directories from global cwd and sets scope to either tab or global.
+---@param opts table? Options (scope: "tab" | "global", default "tab")
+M.cwd = function(opts)
+  opts = opts or {}
+  local scope = opts.scope or "tab"
+  local current_tab = vim.api.nvim_get_current_tabpage()
+
+  -- Get directories to search based on scope
+  local directories = picker.get_search_directories(scope)
+  if #directories == 0 then
+    vim.notify("No search directories found", vim.log.levels.INFO)
+    return
+  end
+
+  local dirs = picker.list_directories(directories, M.config.cwd_max_depth)
+  if #dirs == 0 then
+    vim.notify("No subdirectories found", vim.log.levels.INFO)
+    return
+  end
+
+  -- Convert to display strings and store metadata
+  local display_items = {}
+  local metadata_map = {}
+  for _, item in ipairs(dirs) do
+    table.insert(display_items, item.path)
+    metadata_map[item.path] = item.search_dir
+  end
+
+  table.sort(display_items)
+
+  picker.pick(display_items, {
+    title = "Select Working Directory",
+    on_select = function(choice)
+      if not choice then
+        return
+      end
+
+      -- Get the search directory from metadata
+      local search_dir = metadata_map[choice]
+      if not search_dir then
+        search_dir = directories[1]
+      end
+
+      -- Reconstruct full path - check if choice is already absolute
+      local full_path
+      if choice:sub(1, 1) == "/" then
+        -- Already a full path, use it directly
+        full_path = choice
+      else
+        -- Relative path, combine with search_dir
+        full_path = search_dir .. "/" .. choice
+      end
+
+      if scope == "tab" then
+        vim.cmd("tcd " .. full_path)
+      else
+        vim.cmd("cd " .. full_path)
+      end
+    end,
+  })
+end
+
+---Open a file from working directories.
+---Files are listed from tab's cwd (or global cwd fallback) and optionally
+---switch to another tab if the file belongs to that tab's cwd.
+---@param opts table? Options (scope: "tab" | "global", default "tab")
+M.open = function(opts)
+  opts = opts or {}
+  local scope = opts.scope or "tab"
+  local current_tab = vim.api.nvim_get_current_tabpage()
+
+  -- Get directories to search based on scope
+  local directories = picker.get_search_directories(scope)
+  if #directories == 0 then
+    vim.notify("No search directories found", vim.log.levels.INFO)
+    return
+  end
+
+  local files = picker.list_files(directories, M.config.open_max_depth)
+  if #files == 0 then
+    vim.notify("No files found", vim.log.levels.INFO)
+    return
+  end
+
+  -- Convert to display strings and store metadata
+  local display_items = {}
+  local metadata_map = {}
+  for _, item in ipairs(files) do
+    table.insert(display_items, item.path)
+    metadata_map[item.path] = item.search_dir
+  end
+
+  table.sort(display_items)
+
+  picker.pick(display_items, {
+    title = "Open File",
+    on_select = function(choice)
+      if not choice then
+        return
+      end
+
+      -- Get the search directory from metadata
+      local search_dir = metadata_map[choice]
+      if not search_dir then
+        -- Fallback: use current tab's cwd
+        search_dir = vim.fn.getcwd(0, current_tab)
+        if search_dir == "" then
+          search_dir = vim.fn.getcwd(-1, -1)
+        end
+      end
+
+      -- Reconstruct full path - check if choice is already absolute
+      local full_path
+      if choice:sub(1, 1) == "/" then
+        -- Already a full path, use it directly
+        full_path = choice
+      else
+        -- Relative path, combine with search_dir
+        full_path = search_dir .. "/" .. choice
+      end
+
+      -- Find which tab has this search directory as its cwd
+      local target_tab = nil
+      for _, t in ipairs(vim.api.nvim_list_tabpages()) do
+        local tab_cwd = vim.fn.getcwd(0, t)
+        if tab_cwd == search_dir then
+          target_tab = t
+          break
+        end
+      end
+
+      if target_tab and target_tab ~= current_tab then
+        -- Switch to the tab and open file there
+        vim.api.nvim_set_current_tabpage(target_tab)
+        local target_win = vim.api.nvim_tabpage_get_win(target_tab)
+        vim.cmd("edit " .. full_path)
+        vim.api.nvim_set_current_win(target_win)
+      else
+        -- Open in current tab
+        vim.cmd("edit " .. full_path)
+      end
+    end,
+  })
 end
 
 ---Initialize _state from existing tabpage variables.
