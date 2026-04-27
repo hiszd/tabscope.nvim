@@ -16,6 +16,9 @@ local find_common_parent = function(paths)
   if #paths == 0 then
     return 0, nil
   end
+  if #paths == 1 then
+    return 0, paths[1]
+  end
   ---@type number
   local common_parts = vim.iter(paths):fold(9999, function(acc, path)
     print("path: ", path)
@@ -115,14 +118,10 @@ function M.list_directories(directories, max_depth)
   local found_dirs = {}
   max_depth = max_depth or 10
 
-  -- Find common parent of search directories
-  -- For single directory: strip the search directory directly
-  -- For multiple directories: find common parent
-  local common
-  if #directories == 1 then
-    common = nil -- Will strip the single directory directly
-  else
-    common = find_common_parent(directories)
+  local _, common = find_common_parent(directories)
+
+  if not common then
+    return found_dirs
   end
 
   for _, root_path in ipairs(directories) do
@@ -142,9 +141,8 @@ function M.list_directories(directories, max_depth)
         if vim.fn.isdirectory(full_path) == 1 then
           -- Make relative to the search directory (not common parent for single dir)
           local rel_path
-          local prefix = root_path .. "/"
-          if string.find(full_path, prefix, 1, true) then
-            rel_path = string.sub(full_path, #prefix + 1)
+          if string.find(full_path, common, 1, true) then
+            rel_path = string.sub(full_path, #common + 1)
           else
             rel_path = full_path
           end
@@ -172,13 +170,9 @@ function M.list_files(directories, max_depth)
   local found_files = {}
   max_depth = max_depth or 10
 
-  -- For single directory: strip the search directory directly
-  -- For multiple directories: find common parent
-  local common
-  if #directories == 1 then
-    common = nil -- Will strip the single directory directly
-  else
-    common = find_common_parent(directories)
+  local _, common = find_common_parent(directories)
+  if not common then
+    return found_files
   end
 
   for _, root_path in ipairs(directories) do
@@ -201,9 +195,8 @@ function M.list_files(directories, max_depth)
         else
           -- Make relative to the search directory (not common parent for single dir)
           local rel_path
-          local prefix = root_path .. "/"
-          if string.find(full_path, prefix, 1, true) then
-            rel_path = string.sub(full_path, #prefix + 1)
+          if string.find(full_path, common, 1, true) then
+            rel_path = string.sub(full_path, #common + 1)
           else
             rel_path = full_path
           end

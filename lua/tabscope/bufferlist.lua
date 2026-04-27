@@ -38,7 +38,7 @@ local function get_display_path(directories)
   local max_len = 40
 
   -- Always find common parent, even for single directory
-  local common = picker.find_common_parent(directories)
+  local _, common = picker.find_common_parent(directories)
 
   if not common or common == "/" or #common < 3 then
     -- No meaningful common parent
