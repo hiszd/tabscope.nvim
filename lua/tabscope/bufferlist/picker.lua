@@ -9,43 +9,61 @@ local function join_path(base, name)
 end
 
 ---Find common parent directory from a list of directories.
----Returns the common prefix, or nil if no common parent.
----@param dirs string[] List of directory paths
----@return string? Common parent directory
-local function find_common_parent(dirs)
-  if #dirs == 0 then
-    return nil
+---Returns the common prefix, or nil if no meaningful common parent.
+---@param paths string[] # List of directory paths
+---@return number, string? # Common parent directory
+local find_common_parent = function(paths)
+  if #paths == 0 then
+    return 0, nil
   end
-
-  local first = dirs[1]
-  local first_parts = vim.split(first, "/", { plain = true })
-
-  -- Check each part against all directories
-  local common_parts = {}
-  for i = 1, #first_parts do
-    local part = first_parts[i]
-    local all_match = true
-
-    for j = 2, #dirs do
-      local other_parts = vim.split(dirs[j], "/", { plain = true })
-      if not other_parts[i] or other_parts[i] ~= part then
-        all_match = false
-        break
+  ---@type number
+  local common_parts = vim.iter(paths):fold(9999, function(acc, path)
+    print("path: ", path)
+    ---@cast path string
+    local parts = vim.split(path, "/")
+    if path:find("/") == 1 then
+      table.remove(parts, 1)
+    end
+    local common = vim.iter(paths):fold(9999, function(ac, p)
+      if path == p then
+        return ac
       end
+      local pts = vim.split(p, "/")
+      if p:find("/") == 1 then
+        table.remove(pts, 1)
+      end
+      -- NOTE: for each part that matches the other string we add 1
+      local w = vim.iter(pts):enumerate():fold(0, function(a, i, pt)
+        if pt == parts[i] then
+          return a + 1
+        end
+        return a
+      end)
+      if w < ac then
+        return w
+      end
+      return ac
+    end)
+    if common < acc then
+      return common
     end
+    return acc
+  end)
 
-    if all_match then
-      table.insert(common_parts, part)
-    else
-      break
+  local common_string = (function()
+    if common_parts == 9999 then
+      return nil
     end
-  end
+    local parts = vim.split(paths[1], "/")
+    return vim.iter(parts):enumerate():fold("", function(acc, i, part)
+      if i <= common_parts + 1 then
+        return acc .. part .. "/"
+      end
+      return acc
+    end)
+  end)()
 
-  if #common_parts == 0 then
-    return nil
-  end
-
-  return "/" .. table.concat(common_parts, "/")
+  return common_parts, common_string
 end
 
 ---Get directories to search based on scope.
@@ -93,11 +111,19 @@ end
 ---@param max_depth number Maximum depth to search
 ---@return { path: string, search_dir: string }[] List of directories with metadata
 function M.list_directories(directories, max_depth)
+  ---@type { path: string, search_dir: string }[]
   local found_dirs = {}
   max_depth = max_depth or 10
 
   -- Find common parent of search directories
-  local common = find_common_parent(directories)
+  -- For single directory: strip the search directory directly
+  -- For multiple directories: find common parent
+  local common
+  if #directories == 1 then
+    common = nil -- Will strip the single directory directly
+  else
+    common = find_common_parent(directories)
+  end
 
   for _, root_path in ipairs(directories) do
     local function search(path, depth)
@@ -114,15 +140,11 @@ function M.list_directories(directories, max_depth)
         local full_path = join_path(path, name)
 
         if vim.fn.isdirectory(full_path) == 1 then
-          -- Make relative to common parent
+          -- Make relative to the search directory (not common parent for single dir)
           local rel_path
-          if common then
-            local prefix = common .. "/"
-            if string.find(full_path, prefix, 1, true) then
-              rel_path = string.sub(full_path, #prefix + 1)
-            else
-              rel_path = full_path
-            end
+          local prefix = root_path .. "/"
+          if string.find(full_path, prefix, 1, true) then
+            rel_path = string.sub(full_path, #prefix + 1)
           else
             rel_path = full_path
           end
@@ -150,8 +172,14 @@ function M.list_files(directories, max_depth)
   local found_files = {}
   max_depth = max_depth or 10
 
-  -- Find common parent of search directories
-  local common = find_common_parent(directories)
+  -- For single directory: strip the search directory directly
+  -- For multiple directories: find common parent
+  local common
+  if #directories == 1 then
+    common = nil -- Will strip the single directory directly
+  else
+    common = find_common_parent(directories)
+  end
 
   for _, root_path in ipairs(directories) do
     local function search(path, depth)
@@ -171,15 +199,11 @@ function M.list_files(directories, max_depth)
           -- Recurse into subdirectory, don't add to files list
           search(full_path, depth + 1)
         else
-          -- Make relative to common parent
+          -- Make relative to the search directory (not common parent for single dir)
           local rel_path
-          if common then
-            local prefix = common .. "/"
-            if string.find(full_path, prefix, 1, true) then
-              rel_path = string.sub(full_path, #prefix + 1)
-            else
-              rel_path = full_path
-            end
+          local prefix = root_path .. "/"
+          if string.find(full_path, prefix, 1, true) then
+            rel_path = string.sub(full_path, #prefix + 1)
           else
             rel_path = full_path
           end
@@ -255,9 +279,12 @@ function M.pick_with_snacks(items, opts)
     return
   end
 
-  local items_with_text = vim.iter(items):map(function(item)
-    return { text = item }
-  end):totable()
+  local items_with_text = vim
+    .iter(items)
+    :map(function(item)
+      return { text = item }
+    end)
+    :totable()
 
   local picker_opts = {
     title = opts.title or "Select",
@@ -305,5 +332,7 @@ function M.pick(items, opts)
   end
 end
 
-return M
+---Export find_common_parent for use in bufferlist
+M.find_common_parent = find_common_parent
 
+return M

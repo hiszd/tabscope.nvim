@@ -30,6 +30,38 @@ M.config = {
   open_max_depth = 10,
 }
 
+---Get the display path for picker title.
+---Shows the common parent directory of all search directories.
+---@param directories string[] List of search directories
+---@return string Display path string
+local function get_display_path(directories)
+  local max_len = 40
+
+  -- Always find common parent, even for single directory
+  local common = picker.find_common_parent(directories)
+
+  if not common or common == "/" or #common < 3 then
+    -- No meaningful common parent
+    if #directories == 1 then
+      return vim.fn.fnamemodify(directories[1], ":t")
+    end
+    return "Multiple directories"
+  end
+
+  -- Make path relative to home for shorter display
+  local display = vim.fn.fnamemodify(common, ":~")
+
+  -- Truncate if too long - keep END, remove BEGINNING
+  if #display > max_len then
+    display = "..." .. string.sub(display, -(max_len - 3))
+  end
+
+  return display
+end
+
+-- Export internal function for testing (not part of public API)
+M._get_display_path = get_display_path
+
 ---Module state: tab_handle -> dictionary of filename -> BufInfo
 ---Stores metatable objects for full API access in-memory.
 M._state = {}
@@ -431,7 +463,7 @@ M.cwd = function(opts)
   -- Get directories to search based on scope
   local directories = picker.get_search_directories(scope)
   if #directories == 0 then
-    vim.notify("No search directories found", vim.log.levels.INFO)
+    vim.notify("No directories found in search", vim.log.levels.INFO)
     return
   end
 
@@ -451,8 +483,10 @@ M.cwd = function(opts)
 
   table.sort(display_items)
 
+  local display_path = get_display_path(directories)
+
   picker.pick(display_items, {
-    title = "Select Working Directory",
+    title = "Select Working Directory (" .. display_path .. ")",
     on_select = function(choice)
       if not choice then
         return
@@ -515,8 +549,10 @@ M.open = function(opts)
 
   table.sort(display_items)
 
+  local display_path = get_display_path(directories)
+
   picker.pick(display_items, {
-    title = "Open File",
+    title = "Open File (" .. display_path .. ")",
     on_select = function(choice)
       if not choice then
         return
