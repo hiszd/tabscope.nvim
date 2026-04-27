@@ -458,7 +458,6 @@ end
 M.cwd = function(opts)
   opts = opts or {}
   local scope = opts.scope or "tab"
-  local current_tab = vim.api.nvim_get_current_tabpage()
 
   -- Get directories to search based on scope
   local directories = picker.get_search_directories(scope)
@@ -466,55 +465,45 @@ M.cwd = function(opts)
     vim.notify("No directories found in search", vim.log.levels.INFO)
     return
   end
+  print("Search directories: ", vim.inspect(directories))
 
-  local dirs = picker.list_directories(directories, M.config.cwd_max_depth)
-  if #dirs == 0 then
+  local dirs, common = picker.list_directories(directories, M.config.cwd_max_depth)
+  if dict.count(dirs) == 0 then
     vim.notify("No subdirectories found", vim.log.levels.INFO)
     return
   end
 
-  -- Convert to display strings and store metadata
-  local display_items = {}
-  local metadata_map = {}
-  for _, item in ipairs(dirs) do
-    table.insert(display_items, item.path)
-    metadata_map[item.path] = item.search_dir
-  end
+  local d = vim
+    .iter(dirs)
+    :map(function(_, i)
+      return i
+    end)
+    :totable()
 
-  table.sort(display_items)
-
-  local display_path = get_display_path(directories)
-
-  picker.pick(display_items, {
-    title = "Select Working Directory (" .. display_path .. ")",
-    on_select = function(choice)
-      if not choice then
-        return
-      end
-
-      -- Get the search directory from metadata
-      local search_dir = metadata_map[choice]
-      if not search_dir then
-        search_dir = directories[1]
-      end
-
-      -- Reconstruct full path - check if choice is already absolute
-      local full_path
-      if choice:sub(1, 1) == "/" then
-        -- Already a full path, use it directly
-        full_path = choice
-      else
-        -- Relative path, combine with search_dir
-        full_path = search_dir .. "/" .. choice
-      end
-
-      if scope == "tab" then
-        vim.cmd("tcd " .. full_path)
-      else
-        vim.cmd("cd " .. full_path)
-      end
+  vim.ui.select(d, {
+    prompt = "Select Working Directory (" .. common .. ")",
+    format_item = function(dir)
+      --@cast dir {rel: string, full: string, search_dir: string}
+      return dir.rel
     end,
-  })
+  }, function(choice)
+    ---@cast choice {rel: string, full: string, search_dir: string}
+    if not choice then
+      return
+    end
+
+    -- Get the search directory from metadata
+    local search_dir = choice.search_dir
+    if not search_dir then
+      search_dir = directories[1]
+    end
+
+    if scope == "tab" then
+      vim.cmd("tcd " .. choice.full)
+    else
+      vim.cmd("cd " .. choice.full)
+    end
+  end)
 end
 
 ---Open a file from working directories.
@@ -533,73 +522,61 @@ M.open = function(opts)
     return
   end
 
-  local files = picker.list_files(directories, M.config.open_max_depth)
-  if #files == 0 then
+  local files, common = picker.list_files(directories, M.config.open_max_depth)
+  if dict.count(files) == 0 then
     vim.notify("No files found", vim.log.levels.INFO)
     return
   end
 
-  -- Convert to display strings and store metadata
-  local display_items = {}
-  local metadata_map = {}
-  for _, item in ipairs(files) do
-    table.insert(display_items, item.path)
-    metadata_map[item.path] = item.search_dir
-  end
+  local f = vim
+    .iter(files)
+    :map(function(_, i)
+      return i
+    end)
+    :totable()
 
-  table.sort(display_items)
-
-  local display_path = get_display_path(directories)
-
-  picker.pick(display_items, {
-    title = "Open File (" .. display_path .. ")",
-    on_select = function(choice)
-      if not choice then
-        return
-      end
-
-      -- Get the search directory from metadata
-      local search_dir = metadata_map[choice]
-      if not search_dir then
-        -- Fallback: use current tab's cwd
-        search_dir = vim.fn.getcwd(0, current_tab)
-        if search_dir == "" then
-          search_dir = vim.fn.getcwd(-1, -1)
-        end
-      end
-
-      -- Reconstruct full path - check if choice is already absolute
-      local full_path
-      if choice:sub(1, 1) == "/" then
-        -- Already a full path, use it directly
-        full_path = choice
-      else
-        -- Relative path, combine with search_dir
-        full_path = search_dir .. "/" .. choice
-      end
-
-      -- Find which tab has this search directory as its cwd
-      local target_tab = nil
-      for _, t in ipairs(vim.api.nvim_list_tabpages()) do
-        local tab_cwd = vim.fn.getcwd(0, t)
-        if tab_cwd == search_dir then
-          target_tab = t
-          break
-        end
-      end
-
-      if target_tab and target_tab ~= current_tab then
-        -- Switch to the tab and open file there
-        vim.api.nvim_set_current_tabpage(target_tab)
-        local target_win = vim.api.nvim_tabpage_get_win(target_tab)
-        vim.cmd("edit " .. full_path)
-        vim.api.nvim_set_current_win(target_win)
-      else
-        -- Open in current tab
-        vim.cmd("edit " .. full_path)
-      end
+  vim.ui.select(f, {
+    prompt = "Open File (" .. common .. ")",
+    format_item = function(file)
+      return file.rel
     end,
-  })
+  }, function(choice)
+    ---@cast choice {rel: string, full: string, search_dir: string}
+    if not choice then
+      return
+    end
+
+    -- Get the search directory from metadata
+    local search_dir = choice.search_dir
+    if not search_dir then
+      -- Fallback: use current tab's cwd
+      search_dir = vim.fn.getcwd(0, current_tab)
+      if search_dir == "" then
+        search_dir = vim.fn.getcwd(-1, -1)
+      end
+    end
+
+    -- Find which tab has this search directory as its cwd
+    local target_tab = nil
+    for _, t in ipairs(vim.api.nvim_list_tabpages()) do
+      local tab_cwd = vim.fn.getcwd(0, t)
+      if tab_cwd == search_dir then
+        target_tab = t
+        break
+      end
+    end
+
+    if target_tab and target_tab ~= current_tab then
+      -- Switch to the tab and open file there
+      vim.api.nvim_set_current_tabpage(target_tab)
+      local target_win = vim.api.nvim_tabpage_get_win(target_tab)
+      vim.cmd("edit " .. choice.full)
+      vim.api.nvim_set_current_win(target_win)
+    else
+      -- Open in current tab
+      vim.cmd("edit " .. choice.full)
+    end
+  end)
 end
 
 ---Initialize _state from existing tabpage variables.

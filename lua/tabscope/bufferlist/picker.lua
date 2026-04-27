@@ -84,7 +84,7 @@ function M.get_search_directories(scope)
 
     -- Add each tab's cwd
     for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
-      local tab_cwd = vim.fn.getcwd(0, tab)
+      local tab_cwd = vim.fn.getcwd(-1, tab)
       if tab_cwd and tab_cwd ~= "" then
         dirs[tab_cwd] = true
       end
@@ -112,16 +112,16 @@ end
 ---List subdirectories from multiple roots.
 ---@param directories string[] List of root directories to search
 ---@param max_depth number Maximum depth to search
----@return { path: string, search_dir: string }[] List of directories with metadata
+---@return table<string, {rel: string, full: string, search_dir: string }>, string? # List of directories with metadata, and the common parent
 function M.list_directories(directories, max_depth)
-  ---@type { path: string, search_dir: string }[]
+  ---@type table<string, { rel: string, full: string, search_dir: string }>
   local found_dirs = {}
   max_depth = max_depth or 10
 
   local _, common = find_common_parent(directories)
 
   if not common then
-    return found_dirs
+    return found_dirs, nil
   end
 
   for _, root_path in ipairs(directories) do
@@ -142,15 +142,13 @@ function M.list_directories(directories, max_depth)
           -- Make relative to the search directory (not common parent for single dir)
           local rel_path
           if string.find(full_path, common, 1, true) then
-            rel_path = string.sub(full_path, #common + 1)
+            rel_path = string.sub(full_path, #common + 2)
           else
             rel_path = full_path
           end
 
-          table.insert(found_dirs, {
-            path = rel_path,
-            search_dir = root_path,
-          })
+          found_dirs[rel_path] = { rel = rel_path, full = full_path, search_dir = root_path }
+
           search(full_path, depth + 1)
         end
       end
@@ -159,20 +157,21 @@ function M.list_directories(directories, max_depth)
     search(root_path, 1)
   end
 
-  return found_dirs
+  return found_dirs, common
 end
 
 ---List all files from multiple roots.
 ---@param directories string[] List of root directories to search
 ---@param max_depth number Maximum depth to search
----@return { path: string, search_dir: string }[] List of files with metadata
+---@return table<string, { rel: string, full: string, search_dir: string }>, string? # List of files with metadata
 function M.list_files(directories, max_depth)
+  ---@type table<string, { rel: string, full: string, search_dir: string }>
   local found_files = {}
   max_depth = max_depth or 10
 
   local _, common = find_common_parent(directories)
   if not common then
-    return found_files
+    return found_files, nil
   end
 
   for _, root_path in ipairs(directories) do
@@ -196,15 +195,16 @@ function M.list_files(directories, max_depth)
           -- Make relative to the search directory (not common parent for single dir)
           local rel_path
           if string.find(full_path, common, 1, true) then
-            rel_path = string.sub(full_path, #common + 1)
+            local rel_temp = string.sub(full_path, #common + 1)
+            local rel_parts = vim.split(rel_temp, "/")
+            local rel_start = table.concat(rel_parts, "/", 1, #rel_parts - 1)
+            local rel_end = rel_parts[#rel_parts]
+            rel_path = rel_start .. "/" .. rel_end
           else
             rel_path = full_path
           end
 
-          table.insert(found_files, {
-            path = rel_path,
-            search_dir = root_path,
-          })
+          found_files[rel_path] = { rel = rel_path, full = full_path, search_dir = root_path }
         end
       end
     end
@@ -212,7 +212,7 @@ function M.list_files(directories, max_depth)
     search(root_path, 1)
   end
 
-  return found_files
+  return found_files, common
 end
 
 ---Check if snacks picker is available.
