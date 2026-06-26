@@ -17,12 +17,10 @@ local find_common_parent = function(paths)
     return 0, nil
   end
   if #paths == 1 then
-    return 0, paths[1]
+    return 0, paths[1] .. "/"
   end
   ---@type number
   local common_parts = vim.iter(paths):fold(9999, function(acc, path)
-    print("path: ", path)
-    ---@cast path string
     local parts = vim.split(path, "/")
     if path:find("/") == 1 then
       table.remove(parts, 1)
@@ -35,13 +33,14 @@ local find_common_parent = function(paths)
       if p:find("/") == 1 then
         table.remove(pts, 1)
       end
-      -- NOTE: for each part that matches the other string we add 1
-      local w = vim.iter(pts):enumerate():fold(0, function(a, i, pt)
+      local w = 0
+      for i, pt in ipairs(pts) do
         if pt == parts[i] then
-          return a + 1
+          w = w + 1
+        else
+          break
         end
-        return a
-      end)
+      end
       if w < ac then
         return w
       end
@@ -54,6 +53,9 @@ local find_common_parent = function(paths)
   end)
 
   local common_string = (function()
+    if common_parts < 1 then
+      return nil
+    end
     if common_parts == 9999 then
       return nil
     end
@@ -67,6 +69,159 @@ local find_common_parent = function(paths)
   end)()
 
   return common_parts, common_string
+end
+
+---Parse gitignore contents into pattern objects.
+---@param contents string|string[] Raw gitignore file contents (string or array from vim.fn.readfile)
+---@return table<{pattern: string, negated: boolean, dir_only: boolean}> Parsed patterns
+local function parse_gitignore(contents)
+  local patterns = {}
+  local lines
+  if type(contents) == "string" then
+    lines = vim.split(contents, "\n")
+  else
+    lines = contents
+  end
+  for _, line in ipairs(lines) do
+    line = line:match("^(.-)%s*$")
+    if line and line ~= "" and line:sub(1, 1) ~= "#" then
+      local negated = line:sub(1, 1) == "!"
+      if negated then
+        line = line:sub(2)
+      end
+      local dir_only = line:sub(-1) == "/"
+      if dir_only then
+        line = line:sub(1, -2)
+      end
+      if line and line ~= "" then
+        table.insert(patterns, { pattern = line, negated = negated, dir_only = dir_only })
+      end
+    end
+  end
+  return patterns
+end
+
+---Convert gitignore pattern to Lua pattern.
+---@param pattern string Gitignore pattern
+---@return string Lua pattern
+local function gitignore_to_lua(pattern)
+  local result = {}
+  local i = 1
+  local len = #pattern
+
+  while i <= len do
+    local c = pattern:sub(i, i)
+    if c == "*" then
+      if pattern:sub(i + 1, i + 1) == "*" then
+        if pattern:sub(i + 2, i + 2) == "/" then
+          table.insert(result, ".*/")
+          i = i + 3
+        elseif i == 1 and pattern:sub(i + 2, i + 2) == "*" then
+          table.insert(result, ".*")
+          i = i + 3
+        else
+          table.insert(result, "[^/]*")
+          i = i + 2
+        end
+      else
+        table.insert(result, "[^/]*")
+        i = i + 1
+      end
+    elseif c == "?" then
+      table.insert(result, "[^/]")
+      i = i + 1
+    elseif c == "[" then
+      local j = pattern:find("]", i + 1, true)
+      if j then
+        table.insert(result, pattern:sub(i, j))
+        i = j + 1
+      else
+        table.insert(result, "%[")
+        i = i + 1
+      end
+    elseif c == "/" then
+      table.insert(result, "/")
+      i = i + 1
+    else
+      table.insert(result, "%" .. c)
+      i = i + 1
+    end
+  end
+
+  return table.concat(result, "")
+end
+
+---Check if a path matches a gitignore pattern.
+---@param path string Path to check (relative, no trailing slash)
+---@param pattern_obj {pattern: string, negated: boolean, dir_only: boolean} Parsed pattern
+---@return boolean True if path matches
+local function matches_pattern(path, pattern_obj)
+  local pattern = pattern_obj.pattern
+  local dir_only = pattern_obj.dir_only
+
+  if dir_only then
+    if path:sub(-1) == "/" then
+      path = path:sub(1, -2)
+    else
+      return false
+    end
+  end
+
+  local lua_pattern
+  local anchored = pattern:sub(1, 1) == "/"
+  local is_globstar = pattern:find("**", 1, true)
+
+  if anchored then
+    lua_pattern = "^" .. gitignore_to_lua(pattern:sub(2))
+  elseif is_globstar then
+    lua_pattern = gitignore_to_lua(pattern)
+  else
+    if pattern:find("/", 1, true) then
+      lua_pattern = gitignore_to_lua(pattern)
+    else
+      lua_pattern = "[^/]*/?" .. gitignore_to_lua(pattern)
+    end
+  end
+
+  local ok, match = pcall(string.find, path, lua_pattern)
+  return ok and match ~= nil
+end
+
+---Check if path matches any gitignore pattern.
+---@param path string Path to check
+---@param patterns table Array of parsed patterns
+---@return boolean True if matched (and not negated only)
+local function match_gitignore(path, patterns)
+  local matched = false
+  local negated_only = true
+
+  for _, p in ipairs(patterns) do
+    if matches_pattern(path, p) then
+      if p.negated then
+        negated_only = true
+      else
+        matched = true
+        negated_only = false
+      end
+    end
+  end
+
+  return matched and not negated_only
+end
+
+---Check if path matches as a directory.
+---@param path string Path to check
+---@param patterns table Array of parsed patterns
+---@return boolean True if matched and not negated
+local function matches_dir_gitignore(path, patterns)
+  for _, p in ipairs(patterns) do
+    if matches_pattern(path, p) then
+      if not p.negated then
+        return true
+      end
+    end
+  end
+  return false
 end
 
 ---Get directories to search based on scope.
@@ -110,13 +265,20 @@ function M.get_search_directories(scope)
 end
 
 ---List subdirectories from multiple roots.
----@param directories string[] List of root directories to search
+---@param directories string|string[] List of root directories to search
 ---@param max_depth number Maximum depth to search
+---@param git boolean? Whether to filter by .gitignore (default true)
 ---@return table<string, {rel: string, full: string, search_dir: string }>, string? # List of directories with metadata, and the common parent
-function M.list_directories(directories, max_depth)
+function M.list_directories(directories, max_depth, git)
+  if type(directories) == "string" then
+    directories = { directories }
+  end
   ---@type table<string, { rel: string, full: string, search_dir: string }>
   local found_dirs = {}
   max_depth = max_depth or 10
+  if git == nil then
+    git = true
+  end
 
   local _, common = find_common_parent(directories)
 
@@ -125,6 +287,17 @@ function M.list_directories(directories, max_depth)
   end
 
   for _, root_path in ipairs(directories) do
+    local gitignore_path = join_path(root_path, ".gitignore")
+    local patterns = {}
+    if git then
+      local ok, content = pcall(vim.fn.readfile, gitignore_path)
+      if ok and content then
+        patterns = parse_gitignore(content)
+      end
+    end
+    local super_path = vim.fn.fnamemodify(root_path, ":h")
+    found_dirs[super_path] = { rel = "..", full = super_path, search_dir = root_path }
+
     local function search(path, depth)
       if depth > max_depth then
         return
@@ -139,17 +312,19 @@ function M.list_directories(directories, max_depth)
         local full_path = join_path(path, name)
 
         if vim.fn.isdirectory(full_path) == 1 then
-          -- Make relative to the search directory (not common parent for single dir)
           local rel_path
           if string.find(full_path, common, 1, true) then
-            rel_path = string.sub(full_path, #common + 2)
+            rel_path = string.sub(full_path, #common + 1)
           else
             rel_path = full_path
           end
 
-          found_dirs[rel_path] = { rel = rel_path, full = full_path, search_dir = root_path }
+          if git and #patterns > 0 and matches_dir_gitignore(rel_path, patterns) then
+          else
+            found_dirs[rel_path] = { rel = rel_path, full = full_path, search_dir = root_path }
 
-          search(full_path, depth + 1)
+            search(full_path, depth + 1)
+          end
         end
       end
     end
@@ -161,13 +336,20 @@ function M.list_directories(directories, max_depth)
 end
 
 ---List all files from multiple roots.
----@param directories string[] List of root directories to search
+---@param directories string|string[] List of root directories to search
 ---@param max_depth number Maximum depth to search
+---@param git boolean? Whether to filter by .gitignore (default true)
 ---@return table<string, { rel: string, full: string, search_dir: string }>, string? # List of files with metadata
-function M.list_files(directories, max_depth)
+function M.list_files(directories, max_depth, git)
+  if type(directories) == "string" then
+    directories = { directories }
+  end
   ---@type table<string, { rel: string, full: string, search_dir: string }>
   local found_files = {}
   max_depth = max_depth or 10
+  if git == nil then
+    git = true
+  end
 
   local _, common = find_common_parent(directories)
   if not common then
@@ -175,6 +357,15 @@ function M.list_files(directories, max_depth)
   end
 
   for _, root_path in ipairs(directories) do
+    local gitignore_path = join_path(root_path, ".gitignore")
+    local patterns = {}
+    if git then
+      local ok, content = pcall(vim.fn.readfile, gitignore_path)
+      if ok and content then
+        patterns = parse_gitignore(content)
+      end
+    end
+
     local function search(path, depth)
       if depth > max_depth then
         return
@@ -189,10 +380,18 @@ function M.list_files(directories, max_depth)
         local full_path = join_path(path, name)
 
         if vim.fn.isdirectory(full_path) == 1 then
-          -- Recurse into subdirectory, don't add to files list
-          search(full_path, depth + 1)
+          local rel_path
+          if string.find(full_path, common, 1, true) then
+            rel_path = string.sub(full_path, #common + 2)
+          else
+            rel_path = full_path
+          end
+
+          if git and #patterns > 0 and matches_dir_gitignore(rel_path, patterns) then
+          else
+            search(full_path, depth + 1)
+          end
         else
-          -- Make relative to the search directory (not common parent for single dir)
           local rel_path
           if string.find(full_path, common, 1, true) then
             local rel_temp = string.sub(full_path, #common + 1)
@@ -204,7 +403,10 @@ function M.list_files(directories, max_depth)
             rel_path = full_path
           end
 
-          found_files[rel_path] = { rel = rel_path, full = full_path, search_dir = root_path }
+          if git and #patterns > 0 and match_gitignore(rel_path, patterns) then
+          else
+            found_files[rel_path] = { rel = rel_path, full = full_path, search_dir = root_path }
+          end
         end
       end
     end

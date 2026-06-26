@@ -465,7 +465,6 @@ M.cwd = function(opts)
     vim.notify("No directories found in search", vim.log.levels.INFO)
     return
   end
-  print("Search directories: ", vim.inspect(directories))
 
   local dirs, common = picker.list_directories(directories, M.config.cwd_max_depth)
   if dict.count(dirs) == 0 then
@@ -479,6 +478,10 @@ M.cwd = function(opts)
       return i
     end)
     :totable()
+
+  table.sort(d, function(a, b)
+    return a.rel < b.rel
+  end)
 
   vim.ui.select(d, {
     prompt = "Select Working Directory (" .. common .. ")",

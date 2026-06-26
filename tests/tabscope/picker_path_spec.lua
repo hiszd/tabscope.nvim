@@ -4,42 +4,42 @@ describe("picker path utilities", function()
 
   describe("find_common_parent", function()
     it("returns nil for empty list", function()
-      local result = picker.find_common_parent({})
+      local _, result = picker.find_common_parent({})
       assert.is_nil(result)
     end)
 
     it("returns path as-is for single directory", function()
-      local result = picker.find_common_parent({ "/home/zion/project" })
-      assert.equals("/home/zion/project", result)
+      local _, result = picker.find_common_parent({ "/home/zion/project" })
+      assert.equals("/home/zion/project/", result)
     end)
 
     it("finds common parent for nested directories", function()
-      local result = picker.find_common_parent({
+      local _, result = picker.find_common_parent({
         "/home/zion/projects/app1/src",
         "/home/zion/projects/app1/lib",
       })
-      assert.equals("home/zion/projects/app1", result)
+      assert.equals("/home/zion/projects/app1/", result)
     end)
 
     it("finds common parent for sibling directories", function()
-      local result = picker.find_common_parent({
+      local _, result = picker.find_common_parent({
         "/home/zion/projects/app1",
         "/home/zion/projects/app2",
       })
-      assert.equals("home/zion/projects", result)
+      assert.equals("/home/zion/projects/", result)
     end)
 
     it("finds common parent for deep nested directories", function()
-      local result = picker.find_common_parent({
+      local _, result = picker.find_common_parent({
         "/home/zion/a/b/c/d1",
         "/home/zion/a/b/c/d2",
         "/home/zion/a/b/c/d3",
       })
-      assert.equals("home/zion/a/b/c", result)
+      assert.equals("/home/zion/a/b/c/", result)
     end)
 
     it("returns nil when no common parent", function()
-      local result = picker.find_common_parent({
+      local _, result = picker.find_common_parent({
         "/home/zion/project",
         "/var/data",
       })
@@ -47,7 +47,7 @@ describe("picker path utilities", function()
     end)
 
     it("returns nil for completely different paths", function()
-      local result = picker.find_common_parent({
+      local _, result = picker.find_common_parent({
         "/home/zion/abc",
         "/opt/xyz",
       })
@@ -55,11 +55,11 @@ describe("picker path utilities", function()
     end)
 
     it("handles home directory variations", function()
-      local result = picker.find_common_parent({
+      local _, result = picker.find_common_parent({
         "/home/zion/work/project",
         "/home/zion/play/project",
       })
-      assert.equals("home/zion", result)
+      assert.equals("/home/zion/", result)
     end)
   end)
 
