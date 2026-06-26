@@ -3,79 +3,88 @@ local M = {}
 local tablabel = require("tabscope.tablabel")
 local bufferlist = require("tabscope.bufferlist")
 
----@class TabScopeData
----@field tablabel TabLabelData
----@field bufferlist BufferListData
+---Save tabscope state keyed by tab position (1, 2, 3...) instead of tab handle.
+---Tab handles change across sessions, but tabs are restored in the same order,
+---so positional indexing is stable.
+M.on_save = function()
+  local data = {}
+  local tabpages = vim.api.nvim_list_tabpages()
 
----@alias BufferListData table<string, table<string, tabscope.bufferlist.BufInfo>>
-
----@alias TabLabelData table<string, string>
-
----Get the saved data for this extension
----@param opts resession.Extension.OnSaveOpts Information about the session being saved
----@return TabScopeData
-M.on_save = function(opts)
-  local data = {
-    tablabel = (function()
-      if tablabel.config.enable == true then
-        return vim.iter(vim.api.nvim_list_tabpages()):fold({}, function(acc, tab_handle)
-          ---@cast tab_handle number
-          local success, name = pcall(vim.api.nvim_tabpage_get_var, tab_handle, tablabel.LABEL_VAR_NAME)
-          if success and name then
-            acc[tostring(tab_handle)] = name
-          end
-          return acc
-        end)
+  if tablabel.config.enable then
+    local labels = {}
+    for i, tab_handle in ipairs(tabpages) do
+      local ok, name = pcall(vim.api.nvim_tabpage_get_var, tab_handle, tablabel.LABEL_VAR_NAME)
+      if ok and name then
+        table.insert(labels, { pos = i, name = name })
       end
-    end)(),
-    bufferlist = (function()
-      if bufferlist.config.enable == true then
-        local b = vim.iter(vim.api.nvim_list_tabpages()):fold({}, function(acc, tab_handle)
-          ---@cast tab_handle number
-          local success, buffers = pcall(vim.api.nvim_tabpage_get_var, tab_handle, bufferlist.BUFFER_VAR_NAME)
-          if success and buffers then
-            acc[tostring(tab_handle)] = buffers
-          end
-          return acc
-        end)
-        return b
+    end
+    data.tablabel = labels
+  end
+
+  if bufferlist.config.enable then
+    local lists = {}
+    for i, tab_handle in ipairs(tabpages) do
+      local ok, buffers = pcall(vim.api.nvim_tabpage_get_var, tab_handle, bufferlist.BUFFER_VAR_NAME)
+      if ok and buffers then
+        table.insert(lists, { pos = i, buffers = buffers })
       end
-    end)(),
-  }
+    end
+    data.bufferlist = lists
+  end
 
   return data
 end
 
----Restore the extension state
----@param data TabScopeData #The value returned from on_save
+---Restore tabscope state, matching saved data to restored tabs by position.
+---Supports both the old format (keyed by tostring(tab_handle)) and the new
+---position-based format for backward compatibility.
 M.on_post_load = function(data)
-  if tablabel.config.enable == true then
-    -- This is run after the buffers, windows, and tabs are restored
-    for tab, label in pairs(data.tablabel) do
-      local t = tonumber(tab)
-      if not t then
-        return
+  if not data then return end
+
+  local tabpages = vim.api.nvim_list_tabpages()
+
+  if tablabel.config.enable and data.tablabel then
+    local first_key = next(data.tablabel)
+    if first_key and type(first_key) == "string" then
+      for tab_str, label in pairs(data.tablabel) do
+        local t = tonumber(tab_str)
+        if t then
+          pcall(vim.api.nvim_tabpage_set_var, t, tablabel.LABEL_VAR_NAME, label)
+        end
       end
-      -- Resession handles mapping the saved tab handles to the new ones
-      vim.api.nvim_tabpage_set_var(t, tablabel.LABEL_VAR_NAME, label)
+    else
+      for _, entry in ipairs(data.tablabel) do
+        local tab_handle = tabpages[entry.pos]
+        if tab_handle then
+          pcall(vim.api.nvim_tabpage_set_var, tab_handle, tablabel.LABEL_VAR_NAME, entry.name)
+        end
+      end
     end
     vim.cmd("redrawtabline")
   end
-  if bufferlist.config.enable == true then
-    -- This is run after the buffers, windows, and tabs are restored
-    for tab, list in pairs(data.bufferlist) do
-      local t = tonumber(tab)
-      if not t then
-        return
-      end
-      local r = vim.iter(list):fold({}, function(acc, _, info)
-        ---@cast info tabscope.bufferlist.BufInfo
-        table.insert(acc, info)
-        return acc
-      end)
-      vim.defer_fn(function()
+
+  if bufferlist.config.enable and data.bufferlist then
+    local first_key = next(data.bufferlist)
+    if first_key and type(first_key) == "string" then
+      for tab_str, list in pairs(data.bufferlist) do
+        local t = tonumber(tab_str)
+        if not t then break end
+        local r = vim.iter(list):fold({}, function(acc, _, info)
+          table.insert(acc, info)
+          return acc
+        end)
         bufferlist.restore(r, t)
-      end, 500)
+      end
+    else
+      for _, entry in ipairs(data.bufferlist) do
+        local tab_handle = tabpages[entry.pos]
+        if not tab_handle then break end
+        local r = vim.iter(entry.buffers):fold({}, function(acc, _, info)
+          table.insert(acc, info)
+          return acc
+        end)
+        bufferlist.restore(r, tab_handle)
+      end
     end
   end
 end
